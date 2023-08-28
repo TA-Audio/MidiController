@@ -1,0 +1,79 @@
+{
+    "Channel": 11,
+    "Presets": [
+        {
+            "Name": "Test1",
+            "Switch1": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "CC": null,
+                "PC": 2
+            },
+            "Switch4": {
+                "CC": null,
+                "PC": 45
+            }
+        },
+        {
+            "Name": "Test2",
+            "Switch1": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "CC": null,
+                "PC": 2
+            },
+            "Switch4": {
+                "CC": null,
+                "PC": 45
+            }
+        }
+    ]
+}
