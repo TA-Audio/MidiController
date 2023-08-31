@@ -1,78 +1,115 @@
 {
-    "Channel": 11,
     "Presets": [
         {
-            "Name": "Test1",
-            "Switch1": {
+            "Name": "Preset1",
+            "OnLoad": {
                 "CC": [
                     {
                         "CC": 1,
-                        "Value": 127
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": {
+                    "PC": 2,
+                    "Channel": 11
+                }
+            },
+            "Switch1": {
+                "Name": "SW1",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
                     },
                     {
                         "CC": 4,
-                        "Value": 127
+                        "Value": 127,
+                        "Channel": 11
                     }
                 ],
                 "PC": null
             },
             "Switch2": {
+                "Name": "SW2",
                 "CC": [
                     {
                         "CC": 3,
-                        "Value": 127
+                        "Value": 127,
+                        "Channel": 11
                     },
                     {
                         "CC": 5,
-                        "Value": 0
+                        "Value": 0,
+                        "Channel": 11
                     }
                 ],
                 "PC": null
             },
             "Switch3": {
+                "Name": "SW3",
                 "CC": null,
-                "PC": 2
-            },
-            "Switch4": {
-                "CC": null,
-                "PC": 45
+                "PC": {
+                    "PC": 2,
+                    "Channel": 11
+                }
             }
         },
         {
-            "Name": "Test2",
-            "Switch1": {
+            "Name": "Preset2",
+            "OnLoad": {
                 "CC": [
                     {
                         "CC": 1,
-                        "Value": 127
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": {
+                    "PC": 2,
+                    "Channel": 11
+                }
+            },
+            "Switch1": {
+                "Name": "SW1",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
                     },
                     {
                         "CC": 4,
-                        "Value": 127
+                        "Value": 127,
+                        "Channel": 11
                     }
                 ],
                 "PC": null
             },
             "Switch2": {
+                "Name": "SW2",
                 "CC": [
                     {
                         "CC": 3,
-                        "Value": 127
+                        "Value": 127,
+                        "Channel": 11
                     },
                     {
                         "CC": 5,
-                        "Value": 0
+                        "Value": 0,
+                        "Channel": 11
                     }
                 ],
                 "PC": null
             },
             "Switch3": {
+                "Name": "SW3",
                 "CC": null,
-                "PC": 2
-            },
-            "Switch4": {
-                "CC": null,
-                "PC": 45
+                "PC": {
+                    "PC": 2,
+                    "Channel": 11
+                }
             }
         }
     ]
