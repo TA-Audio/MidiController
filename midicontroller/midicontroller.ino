@@ -6,7 +6,7 @@
 #include "SdFat.h"
 
 // Allocate the JSON document
-DynamicJsonDocument doc(128);
+DynamicJsonDocument doc(2056);
 LiquidCrystal_I2C lcd(0x27, 20, 4); // I2C address 0x27, 20 column and 4 rows
 const int switch1 = 5;
 const int switch2 = 6;
@@ -108,24 +108,50 @@ void ChangePreset()
   Serial.println(currentPreset);
 
   JsonArray presets = doc["Presets"];
+
   JsonVariant preset = presets[currentPreset];
 
   lcd.clear();
-  lcd.setCursor(0, 0);                           // move cursor the first row
-  lcd.print("Preset: " + String(currentPreset)); // print message at the first row
-  lcd.setCursor(0, 1);                           // move cursor to the second row
-  lcd.print(preset["Name"].as<const char *>());  // print message at the second row
+  lcd.setCursor(0, 0); // move cursor the first row
+  // lcd.print("Preset: " + String(currentPreset)); // print message at the first row
+  // lcd.setCursor(0, 1);                           // move cursor to the second row
+  lcd.print(preset["Name"].as<const char *>()); // print message at the second row
   lcd.setCursor(0, 3);
-  lcd.print("zzzzz  zzzzz  zzzzz");
+  const char *sw1 = preset["Switch1"]["Name"].as<const char *>();
+  const char *sw2 = preset["Switch2"]["Name"].as<const char *>();
+  const char *sw3 = preset["Switch3"]["Name"].as<const char *>();
+  int sw1Length = strlen(sw1);
+  int sw2Length = strlen(sw2);
+  int sw3Length = strlen(sw3);
+
+  // Calculate the padding needed for each string
+  int totalLength = sw1Length + sw2Length + sw3Length;
+  int padding1 = (totalLength < 20) ? (20 - totalLength) / 2 : 0;
+  int padding3 = (totalLength < 20) ? (20 - totalLength + 1) / 2 : 0;
+
+  lcd.print(sw1);
+  for (int i = 0; i < padding1; i++)
+  {
+    lcd.print(" ");
+  }
+
+  lcd.print(sw2);
+
+  for (int i = 0; i < padding3; i++)
+  {
+    lcd.print(" ");
+  }
+  lcd.print(sw3);
+
   // create text with value sw1, pad to 5 characters with white space at front and back
 
-  const char *sw1 = "sw1";
-  // get lenth of sw1
-  int sw1Length = strlen(sw1);
-  if (sw1Length < 5)
-  {
-    // add whitespace at front and back of sw1 to make 5 len
-  }
+  // const char *sw1 = "sw1";
+  // // get lenth of sw1
+  // int sw1Length = strlen(sw1);
+  // if (sw1Length < 5)
+  // {
+  //   // add whitespace at front and back of sw1 to make 5 len
+  // }
 
   // lcd.setCursor(0, 2);                    // move cursor to the third row
   // lcd.print("v0.0.1");                    // print message at the third row
@@ -170,6 +196,8 @@ static Button switch3Button(3, switch3Handler);
 static Button nextPresetButton(4, nextPresetHandler);
 static Button prevPresetButton(4, prevPresetHanlder);
 
+
+
 void setup()
 {
 
@@ -203,6 +231,9 @@ void setup()
     return;
   }
 
+  // serializeJsonPretty(doc, Serial);
+  // Serial.println(doc.memoryUsage());
+
   lcd.init(); // initialize the lcd
   lcd.backlight();
 
@@ -222,7 +253,7 @@ void ReadConfigFile()
 
   // Allocate memory dynamically based on file size
   json = new char[fileSize + 1];
-  doc = DynamicJsonDocument(fileSize + 1);
+  // doc = DynamicJsonDocument(fileSize + 1);
 
   // Read the entire file into the allocated buffer
   uint32_t bytesRead = configFile.read((uint8_t *)json, fileSize);
@@ -250,7 +281,7 @@ void BootLCD()
   lcd.setCursor(0, 0);          // move cursor the first row
   lcd.print("TA Audio");        // print message at the first row
   lcd.setCursor(0, 1);          // move cursor to the second row
-  lcd.print("MIDI Controller"); // print message at the second row
+  lcd.print("SYNAPSE"); // print message at the second row
   lcd.setCursor(0, 2);          // move cursor to the third row
   lcd.print("v0.0.1");          // print message at the third row
   delay(4000);
