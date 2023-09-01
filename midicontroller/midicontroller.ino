@@ -19,7 +19,6 @@ int address = 0;
 int readValue = 0;
 SdFat sd;
 SdFile configFile;
-char *json;
 
 MIDI_CREATE_DEFAULT_INSTANCE();
 
@@ -87,18 +86,21 @@ void ExecuteSwitchLogic(int switchNo)
     break;
   }
 
-  JsonVariant switchPC = switchLogic["PC"];
+  JsonArray switchPC = switchLogic["PC"];
 
   if (!switchPC.isNull())
   {
-    int pc = switchPC["PC"];
-    int channel = switchPC["Channel"];
-    Serial.print("PC: ");
-    Serial.println(pc);
-    Serial.print("Channel: ");
-    Serial.println(channel);
+    for (JsonVariant pcEvent : switchPC)
+    {
+      int pc = pcEvent["PC"];
+      int channel = pcEvent["Channel"];
+      Serial.print("PC: ");
+      Serial.println(pc);
+      Serial.print("Channel: ");
+      Serial.println(channel);
 
-    MIDI.sendProgramChange(pc, channel);
+      MIDI.sendProgramChange(pc, channel);
+    }
   }
 
   JsonArray ccArray = switchLogic["CC"];
@@ -130,6 +132,11 @@ void ChangePreset()
   Serial.println(currentPreset);
 
   JsonArray presets = doc["Presets"];
+
+  if (currentPreset >= presets.size())
+  {
+    currentPreset = 0;
+  }
 
   JsonVariant preset = presets[currentPreset];
 
@@ -163,19 +170,22 @@ void ChangePreset()
   }
   lcd.print(sw3);
 
-  JsonVariant onLoadPC = preset["OnLoad"]["PC"];
+  JsonArray onLoadPC = preset["OnLoad"]["PC"];
   JsonArray onLoadCC = preset["OnLoad"]["CC"];
 
   if (!onLoadPC.isNull())
   {
-    int pc = onLoadPC["PC"];
-    int channel = onLoadPC["Channel"];
-    Serial.print("PC: ");
-    Serial.println(pc);
-    Serial.print("Channel: ");
-    Serial.println(channel);
+    for (JsonVariant pcEvent : onLoadPC)
+    {
+      int pc = pcEvent["PC"];
+      int channel = pcEvent["Channel"];
+      Serial.print("PC: ");
+      Serial.println(pc);
+      Serial.print("Channel: ");
+      Serial.println(channel);
 
-    MIDI.sendProgramChange(pc, channel);
+      MIDI.sendProgramChange(pc, channel);
+    }
   }
 
   if (!onLoadCC.isNull())
@@ -206,6 +216,10 @@ static Button prevPresetButton(4, prevPresetHanlder);
 void setup()
 {
 
+  lcd.init(); // initialize the lcd
+  lcd.backlight();
+  BootLCD();
+
   pinMode(switch1, INPUT);
   pinMode(switch2, INPUT);
   pinMode(switch3, INPUT);
@@ -222,14 +236,17 @@ void setup()
 
   if (!sd.begin(chipSelect, SPI_HALF_SPEED))
     sd.initErrorHalt();
-  if (!configFile.open("exampleConfig.json", O_READ))
+  if (!configFile.open("config.json", O_READ))
   {
     sd.errorHalt("sd error");
   }
 
-  ReadConfigFile();
+  lcd.clear();
 
-  DeserializationError error = deserializeJson(doc, json);
+  lcd.print("LOADING PRESETS...");
+  delay(1000);
+
+  DeserializationError error = deserializeJson(doc, configFile);
 
   // Test if parsing succeeds.
   if (error)
@@ -239,13 +256,9 @@ void setup()
     return;
   }
 
-  // serializeJsonPretty(doc, Serial);
-  // Serial.println(doc.memoryUsage());
 
-  lcd.init(); // initialize the lcd
-  lcd.backlight();
+  Serial.println(doc.memoryUsage());
 
-  BootLCD();
   currentPreset = EEPROM.get(address, readValue);
   if (currentPreset == -1)
   {
@@ -253,34 +266,6 @@ void setup()
   }
 
   ChangePreset();
-}
-
-void ReadConfigFile()
-{
-  uint32_t fileSize = configFile.size();
-
-  // Allocate memory dynamically based on file size
-  json = new char[fileSize + 1];
-  // doc = DynamicJsonDocument(fileSize + 1);
-
-  // Read the entire file into the allocated buffer
-  uint32_t bytesRead = configFile.read((uint8_t *)json, fileSize);
-
-  if (bytesRead > 0)
-  {
-    json[bytesRead] = '\0'; // Null-terminate the buffer
-    // Serial.print(json);
-  }
-  else
-  {
-    // End of file or error
-    configFile.close();
-    delete[] json; // Free the dynamically allocated memory
-    while (true)
-      ; // Halt execution
-  }
-  // delete[] fileContents;
-  configFile.close();
 }
 
 void BootLCD()
@@ -311,4 +296,7 @@ static void pollButtons()
 void loop()
 {
   pollButtons();
+  currentPreset++;
+  ChangePreset();
+  delay(10000);
 }

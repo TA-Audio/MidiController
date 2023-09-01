@@ -1,0 +1,1204 @@
+{
+    "Presets": [
+        {
+            "Name": "Preset1",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "JAXDF",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "QECUN",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "GLAKX",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset2",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "HHWBG",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "HYYZB",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "QRCDK",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset3",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "SEADZ",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "WOUPM",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "RJANJ",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset4",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "KJDYI",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "GSCYF",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "DJNBV",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset5",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "FUMLT",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "GYOLZ",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "VJBRJ",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset6",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "RCQHN",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "DROEW",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "MNVCF",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset7",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "UYJNF",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "IWIPW",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "JPMAF",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset8",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "DGMII",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "WPHSP",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "DMUJA",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset9",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "QIWAH",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "BFOJH",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "PQLUZ",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset10",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "OMAPI",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "MCYQX",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "WPQKW",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset11",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "EFVOD",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "GFIGK",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "JTFUP",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset12",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "MYURD",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "GYKAW",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "IQYPT",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset13",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "OTONI",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "QFHUF",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "FDHQS",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset14",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "STUUM",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "TUCQK",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "XPPHM",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset15",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "YSAOJ",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "XVGXV",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "LQSQX",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset16",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "KGLSV",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "WNWEA",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "VTNWZ",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset17",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "QGAPF",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "PRXTK",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "DHAJT",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset18",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "MGJVS",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "PXCJZ",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "TDBXN",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset19",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "RZLNN",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "YMWRU",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "PLEME",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        },
+        {
+            "Name": "Preset20",
+            "OnLoad": {
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            },
+            "Switch1": {
+                "Name": "LOQYA",
+                "CC": [
+                    {
+                        "CC": 1,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 4,
+                        "Value": 127,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch2": {
+                "Name": "FHLQC",
+                "CC": [
+                    {
+                        "CC": 3,
+                        "Value": 127,
+                        "Channel": 11
+                    },
+                    {
+                        "CC": 5,
+                        "Value": 0,
+                        "Channel": 11
+                    }
+                ],
+                "PC": null
+            },
+            "Switch3": {
+                "Name": "RXDWA",
+                "CC": null,
+                "PC": [
+                    {
+                        "PC": 2,
+                        "Channel": 11
+                    }
+                ]
+            }
+        }
+    ]
+}
