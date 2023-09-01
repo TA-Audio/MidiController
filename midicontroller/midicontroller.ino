@@ -21,6 +21,8 @@ SdFat sd;
 SdFile configFile;
 char *json;
 
+MIDI_CREATE_DEFAULT_INSTANCE();
+
 static void switch1Handler(uint8_t btnId, uint8_t btnState)
 {
   if (btnState == BTN_PRESSED)
@@ -66,38 +68,58 @@ static void prevPresetHanlder(uint8_t btnId, uint8_t btnState)
 void ExecuteSwitchLogic(int switchNo)
 {
 
-  // JsonVariant preset = presets[currentPreset];
-  // JsonObject switchLogic;
+  JsonArray presets = doc["Presets"];
 
-  // switch (switchNo) {
-  //   case 1:
-  //     switchLogic = preset["Switch1"];
-  //     break;
-  //   case 2:
-  //     switchLogic = preset["Switch2"];
-  //     break;
-  //   case 3:
-  //     switchLogic = preset["Switch3"];
-  //     break;
-  //   case 4:
-  //     switchLogic = preset["Switch4"];
-  //     break;
-  // }
+  JsonVariant preset = presets[currentPreset];
 
-  // JsonArray ccArray = switchLogic["CC"];
+  JsonObject switchLogic;
 
-  // if (!ccArray.isNull()) {
-  //   for (JsonVariant cc : ccArray) {
-  //     int ccNumber = cc["CC"].as<int>();    // Extract integer value
-  //     int ccValue = cc["Value"].as<int>();  // Extract integer value
-  //     Serial.print("CC Number: ");
-  //     Serial.print(ccNumber);
-  //     Serial.print(", CC Value: ");
-  //     Serial.println(ccValue);
-  //   }
-  // }
+  switch (switchNo)
+  {
+  case 1:
+    switchLogic = preset["Switch1"];
+    break;
+  case 2:
+    switchLogic = preset["Switch2"];
+    break;
+  case 3:
+    switchLogic = preset["Switch3"];
+    break;
+  }
 
-  // PC logic goes here
+  JsonVariant switchPC = switchLogic["PC"];
+
+  if (!switchPC.isNull())
+  {
+    int pc = switchPC["PC"];
+    int channel = switchPC["Channel"];
+    Serial.print("PC: ");
+    Serial.println(pc);
+    Serial.print("Channel: ");
+    Serial.println(channel);
+
+    MIDI.sendProgramChange(pc, channel);
+  }
+
+  JsonArray ccArray = switchLogic["CC"];
+
+  if (!ccArray.isNull())
+  {
+    for (JsonVariant cc : ccArray)
+    {
+      int ccNumber = cc["CC"];
+      int ccValue = cc["Value"];
+      int ccChannel = cc["Channel"];
+      Serial.print("CC Number: ");
+      Serial.println(ccNumber);
+      Serial.print("CC Value: ");
+      Serial.println(ccValue);
+      Serial.print("CC Channel: ");
+      Serial.println(ccChannel);
+
+      MIDI.sendControlChange(ccValue, ccNumber, ccChannel);
+    }
+  }
 }
 
 void ChangePreset()
@@ -112,9 +134,7 @@ void ChangePreset()
   JsonVariant preset = presets[currentPreset];
 
   lcd.clear();
-  lcd.setCursor(0, 0); // move cursor the first row
-  // lcd.print("Preset: " + String(currentPreset)); // print message at the first row
-  // lcd.setCursor(0, 1);                           // move cursor to the second row
+  lcd.setCursor(0, 0);
   lcd.print(preset["Name"].as<const char *>()); // print message at the second row
   lcd.setCursor(0, 3);
   const char *sw1 = preset["Switch1"]["Name"].as<const char *>();
@@ -143,51 +163,38 @@ void ChangePreset()
   }
   lcd.print(sw3);
 
-  // create text with value sw1, pad to 5 characters with white space at front and back
+  JsonVariant onLoadPC = preset["OnLoad"]["PC"];
+  JsonArray onLoadCC = preset["OnLoad"]["CC"];
 
-  // const char *sw1 = "sw1";
-  // // get lenth of sw1
-  // int sw1Length = strlen(sw1);
-  // if (sw1Length < 5)
-  // {
-  //   // add whitespace at front and back of sw1 to make 5 len
-  // }
+  if (!onLoadPC.isNull())
+  {
+    int pc = onLoadPC["PC"];
+    int channel = onLoadPC["Channel"];
+    Serial.print("PC: ");
+    Serial.println(pc);
+    Serial.print("Channel: ");
+    Serial.println(channel);
 
-  // lcd.setCursor(0, 2);                    // move cursor to the third row
-  // lcd.print("v0.0.1");                    // print message at the third row
+    MIDI.sendProgramChange(pc, channel);
+  }
 
-  // for (JsonVariant preset : presets) {
-  //   for (JsonVariant preset : presets) {
-  //     Serial.println(preset["Name"].as<const char*>());
-  //   }
+  if (!onLoadCC.isNull())
+  {
+    for (JsonVariant ccEvent : onLoadCC)
+    {
+      int ccNumber = ccEvent["CC"];
+      int ccValue = ccEvent["Value"];
+      int ccChannel = ccEvent["Channel"];
+      Serial.print("CC Number: ");
+      Serial.println(ccNumber);
+      Serial.print("CC Value: ");
+      Serial.println(ccValue);
+      Serial.print("CC Channel: ");
+      Serial.println(ccChannel);
 
-  //   // lcd.clear();
-  //   // lcd.setCursor(0, 0);                    // move cursor the first row
-  //   // lcd.print("Preset: " + currentPreset);  // print message at the first row
-  //   // lcd.setCursor(0, 1);                    // move cursor to the second row
-  //   // lcd.print(presetName);           // print message at the second row
-  //   // lcd.setCursor(0, 2);                    // move cursor to the third row
-  //   // lcd.print("v0.0.1");                    // print message at the third row
-
-  //   //update name on display etc
-  // }
-  // JsonArray presets = doc["Presets"];
-
-  // for (JsonVariant preset : presets) {
-  //   JsonObject switch1 = preset["Switch1"];
-  //   JsonArray ccArray = switch1["CC"];
-  //   Serial.println(preset["Name"].as<String>());
-  //   Serial.println("Switch1 CC Objects:");
-
-  //   for (JsonVariant cc : ccArray) {
-  //     int ccNumber = cc["CC"];
-  //     int ccValue = cc["Value"];
-  //     Serial.print("CC Number: ");
-  //     Serial.print(ccNumber);
-  //     Serial.print(", CC Value: ");
-  //     Serial.println(ccValue);
-  //   }
-  // }
+      MIDI.sendControlChange(ccValue, ccNumber, ccChannel);
+    }
+  }
 }
 
 static Button switch1Button(1, switch1Handler);
@@ -195,8 +202,6 @@ static Button switch2Button(2, switch2Handler);
 static Button switch3Button(3, switch3Handler);
 static Button nextPresetButton(4, nextPresetHandler);
 static Button prevPresetButton(4, prevPresetHanlder);
-
-
 
 void setup()
 {
@@ -206,6 +211,9 @@ void setup()
   pinMode(switch3, INPUT);
   pinMode(nextPreset, INPUT);
   pinMode(prevPreset, INPUT);
+
+  MIDI.begin();
+  MIDI.turnThruOff();
 
   // Initialize serial port
   Serial.begin(9600);
@@ -281,12 +289,12 @@ void BootLCD()
   lcd.setCursor(0, 0);          // move cursor the first row
   lcd.print("TA Audio");        // print message at the first row
   lcd.setCursor(0, 1);          // move cursor to the second row
-  lcd.print("SYNAPSE"); // print message at the second row
+  lcd.print("SYNAPSE");         // print message at the second row
   lcd.setCursor(0, 2);          // move cursor to the third row
-  lcd.print("v0.0.1");          // print message at the third row
+  lcd.print("MIDI CONTROLLER"); // print message at the third row
+  lcd.setCursor(0, 3);          // move cursor to the fourth row
+  lcd.print("v0.0.1");          // print message the fourth row
   delay(4000);
-  // lcd.setCursor(0, 3);             // move cursor to the fourth row
-  // lcd.print("www.diyables.io");    // print message the fourth row
 }
 
 static void pollButtons()
