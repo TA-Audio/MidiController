@@ -6,11 +6,7 @@
 #include "SdFat.h"
 
 // Allocate the JSON document
-//
-// Inside the brackets, 200 is the capacity of the memory pool in bytes.
-// Don't forget to change this value to match your JSON document.
-// Use arduinojson.org/v6/assistant to compute the capacity.
-StaticJsonDocument<1024> doc;
+DynamicJsonDocument doc(128);
 LiquidCrystal_I2C lcd(0x27, 20, 4); // I2C address 0x27, 20 column and 4 rows
 const int switch1 = 5;
 const int switch2 = 6;
@@ -23,11 +19,6 @@ int address = 0;
 int readValue = 0;
 SdFat sd;
 SdFile configFile;
-
-// Get this from SD
-
-// char json[] = "{\"Channel\": 11, \"Presets\": [ { \"Name\": \"Test1\", \"Switch1\": { \"CC\": [ { \"CC\": 1, \"Value\": 127 }, { \"CC\": 4, \"Value\": 127 } ], \"PC\": null }, \"Switch2\": { \"CC\": [ { \"CC\": 3, \"Value\": 127 }, { \"CC\": 5, \"Value\": 0 } ], \"PC\": null }, \"Switch3\": { \"CC\": null, \"PC\": 2 }, \"Switch4\": { \"CC\": null, \"PC\": 45 } }, { \"Name\": \"Test2\", \"Switch1\": { \"CC\": [ { \"CC\": 1, \"Value\": 127 }, { \"CC\": 4, \"Value\": 127 } ], \"PC\": null }, \"Switch2\": { \"CC\": [ { \"CC\": 3, \"Value\": 127 }, { \"CC\": 5, \"Value\": 0 } ], \"PC\": null }, \"Switch3\": { \"CC\": null, \"PC\": 2 }, \"Switch4\": { \"CC\": null, \"PC\": 45 } } ] }";
-
 char *json;
 
 static void switch1Handler(uint8_t btnId, uint8_t btnState)
@@ -201,6 +192,7 @@ void setup()
   }
 
   ReadConfigFile();
+
   DeserializationError error = deserializeJson(doc, json);
 
   // Test if parsing succeeds.
@@ -230,6 +222,7 @@ void ReadConfigFile()
 
   // Allocate memory dynamically based on file size
   json = new char[fileSize + 1];
+  doc = DynamicJsonDocument(fileSize + 1);
 
   // Read the entire file into the allocated buffer
   uint32_t bytesRead = configFile.read((uint8_t *)json, fileSize);
@@ -237,7 +230,7 @@ void ReadConfigFile()
   if (bytesRead > 0)
   {
     json[bytesRead] = '\0'; // Null-terminate the buffer
-    //Serial.print(json);
+    // Serial.print(json);
   }
   else
   {
@@ -247,7 +240,7 @@ void ReadConfigFile()
     while (true)
       ; // Halt execution
   }
-  //delete[] fileContents;
+  // delete[] fileContents;
   configFile.close();
 }
 
