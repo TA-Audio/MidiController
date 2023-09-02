@@ -1,0 +1,60 @@
+{
+  "Switch1": {
+    "PC": null,
+    "Name": "DLAY",
+    "CC": [
+      {
+        "Value": 127,
+        "CC": 1,
+        "Channel": 11
+      },
+      {
+        "Value": 127,
+        "CC": 4,
+        "Channel": 11
+      }
+    ]
+  },
+  "Switch3": {
+    "PC": [
+      {
+        "Channel": 11,
+        "PC": 2
+      }
+    ],
+    "Name": "DLAY",
+    "CC": null
+  },
+  "Name": "Line 6",
+  "OnLoad": {
+    "CC": [
+      {
+        "Value": 127,
+        "CC": 1,
+        "Channel": 11
+      }
+    ],
+    "PC": [
+      {
+        "Channel": 11,
+        "PC": 2
+      }
+    ]
+  },
+  "Switch2": {
+    "PC": null,
+    "Name": "DLAY",
+    "CC": [
+      {
+        "Value": 127,
+        "CC": 3,
+        "Channel": 11
+      },
+      {
+        "Value": 0,
+        "CC": 5,
+        "Channel": 11
+      }
+    ]
+  }
+}

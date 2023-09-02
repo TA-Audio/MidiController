@@ -6,7 +6,7 @@
 #include "SdFat.h"
 
 // Allocate the JSON document
-DynamicJsonDocument doc(2056);
+DynamicJsonDocument doc(1024);
 LiquidCrystal_I2C lcd(0x27, 20, 4); // I2C address 0x27, 20 column and 4 rows
 const int switch1 = 5;
 const int switch2 = 6;
@@ -19,6 +19,13 @@ int address = 0;
 int readValue = 0;
 SdFat sd;
 SdFile configFile;
+JsonVariant preset;
+FsFile dir;
+FsFile file;
+const int maxListSize = 150;                   // Maximum number of words
+const int maxStringLength = 25;                // Maximum length of each word
+char presetList[maxListSize][maxStringLength]; // Array to store strings
+int currentIndex = 0;                          // Current index in the array
 
 MIDI_CREATE_DEFAULT_INSTANCE();
 
@@ -66,10 +73,6 @@ static void prevPresetHanlder(uint8_t btnId, uint8_t btnState)
 
 void ExecuteSwitchLogic(int switchNo)
 {
-
-  JsonArray presets = doc["Presets"];
-
-  JsonVariant preset = presets[currentPreset];
 
   JsonObject switchLogic;
 
@@ -127,18 +130,37 @@ void ExecuteSwitchLogic(int switchNo)
 void ChangePreset()
 {
 
-  EEPROM.put(address, currentPreset);
-  Serial.println("Change preset called");
-  Serial.println(currentPreset);
-
-  JsonArray presets = doc["Presets"];
-
-  if (currentPreset >= presets.size())
+  //if end of list, go back to start
+  if (currentPreset >= currentIndex)
   {
     currentPreset = 0;
   }
 
-  JsonVariant preset = presets[currentPreset];
+  EEPROM.put(address, currentPreset);
+  Serial.println("Change preset called");
+  Serial.println(currentPreset);
+
+  char *fileName = presetList[currentPreset + 1];
+
+  Serial.println(fileName);
+
+  if (!configFile.open(fileName, O_READ))
+  {
+    sd.errorHalt("sd error");
+  }
+
+  DeserializationError error = deserializeJson(doc, configFile);
+
+  // Test if parsing succeeds.
+  if (error)
+  {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+    return;
+  }
+
+
+  preset = doc;
 
   lcd.clear();
   lcd.setCursor(0, 0);
@@ -234,30 +256,17 @@ void setup()
   while (!Serial)
     continue;
 
+  lcd.clear();
+  lcd.print("LOADING PRESETS...");
+
   if (!sd.begin(chipSelect, SPI_HALF_SPEED))
     sd.initErrorHalt();
-  if (!configFile.open("config.json", O_READ))
-  {
-    sd.errorHalt("sd error");
-  }
 
-  lcd.clear();
+  GetPresets();
 
-  lcd.print("LOADING PRESETS...");
-  delay(1000);
+  delay(500);
 
-  DeserializationError error = deserializeJson(doc, configFile);
-
-  // Test if parsing succeeds.
-  if (error)
-  {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.f_str());
-    return;
-  }
-
-
-  Serial.println(doc.memoryUsage());
+  // Serial.println(doc.memoryUsage());
 
   currentPreset = EEPROM.get(address, readValue);
   if (currentPreset == -1)
@@ -266,6 +275,39 @@ void setup()
   }
 
   ChangePreset();
+}
+
+void GetPresets()
+{
+
+  // Open root directory
+  dir.open("/");
+
+  // create an array for each file name
+  // filenames = new String[dir.count()];
+
+  while (file.openNext(&dir, O_RDONLY))
+  {
+
+    int max_characters = 25;     // guess the needed characters
+    char f_name[max_characters]; // the filename variable you want
+    file.getName(f_name, max_characters);
+    // Serial.println(f_name);
+
+    strncpy(presetList[currentIndex], f_name, maxStringLength);
+    currentIndex++; // Increment the list length
+
+    file.close();
+  }
+  if (dir.getError())
+  {
+    Serial.println("openNext failed");
+  }
+  else
+  {
+    Serial.println("Done!");
+  }
+
 }
 
 void BootLCD()
@@ -295,8 +337,8 @@ static void pollButtons()
 
 void loop()
 {
-  pollButtons();
-  currentPreset++;
-  ChangePreset();
-  delay(10000);
+  // pollButtons();
+   currentPreset++;
+   ChangePreset();
+   delay(10000);
 }
