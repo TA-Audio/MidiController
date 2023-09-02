@@ -1,4 +1,5 @@
-#include <ArduinoJson.h>
+
+`#include <ArduinoJson.h>
 #include <MIDI.h>
 #include <debounce.h>
 #include <EEPROM.h>
@@ -233,7 +234,7 @@ static Button switch1Button(1, switch1Handler);
 static Button switch2Button(2, switch2Handler);
 static Button switch3Button(3, switch3Handler);
 static Button nextPresetButton(4, nextPresetHandler);
-static Button prevPresetButton(4, prevPresetHanlder);
+static Button prevPresetButton(5, prevPresetHanlder);
 
 void setup()
 {
@@ -248,9 +249,7 @@ void setup()
   pinMode(nextPreset, INPUT);
   pinMode(prevPreset, INPUT);
 
-  MIDI.begin();
-  MIDI.turnThruOff();
-
+  MIDI.begin(MIDI_CHANNEL_OMNI);
   // Initialize serial port
   Serial.begin(9600);
   while (!Serial)
@@ -338,8 +337,8 @@ static void pollButtons()
 
 void loop()
 {
-  // pollButtons();
-  currentPreset++;
-  ChangePreset();
-  delay(10000);
+   pollButtons();
+  // currentPreset++;
+  // ChangePreset();
+  // delay(10000);
 }
