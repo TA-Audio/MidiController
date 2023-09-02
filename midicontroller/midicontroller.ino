@@ -130,7 +130,8 @@ void ExecuteSwitchLogic(int switchNo)
 void ChangePreset()
 {
 
-  //if end of list, go back to start
+  // if end of list, go back to start
+
   if (currentPreset >= currentIndex)
   {
     currentPreset = 0;
@@ -158,7 +159,6 @@ void ChangePreset()
     Serial.println(error.f_str());
     return;
   }
-
 
   preset = doc;
 
@@ -268,11 +268,13 @@ void setup()
 
   // Serial.println(doc.memoryUsage());
 
-  currentPreset = EEPROM.get(address, readValue);
-  if (currentPreset == -1)
-  {
-    currentPreset = 0;
-  }
+  // currentPreset = EEPROM.get(address, readValue);
+  // if (currentPreset == -1)
+  // {
+  //   currentPreset = 0;
+  // }
+
+  currentPreset = 0;
 
   ChangePreset();
 }
@@ -307,7 +309,6 @@ void GetPresets()
   {
     Serial.println("Done!");
   }
-
 }
 
 void BootLCD()
@@ -338,7 +339,7 @@ static void pollButtons()
 void loop()
 {
   // pollButtons();
-   currentPreset++;
-   ChangePreset();
-   delay(10000);
+  currentPreset++;
+  ChangePreset();
+  delay(10000);
 }
