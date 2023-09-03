@@ -1,10 +1,11 @@
 
-`#include <ArduinoJson.h>
+#include <ArduinoJson.h>
 #include <MIDI.h>
 #include <debounce.h>
 #include <EEPROM.h>
 #include <LiquidCrystal_I2C.h>
 #include "SdFat.h"
+#include <debounce.h>
 
 // Allocate the JSON document
 DynamicJsonDocument doc(1024);
@@ -27,11 +28,16 @@ const int maxListSize = 150;                   // Maximum number of words
 const int maxStringLength = 25;                // Maximum length of each word
 char presetList[maxListSize][maxStringLength]; // Array to store strings
 int currentIndex = 0;                          // Current index in the array
+unsigned long debounceDelay = 50;              // debounce time in milliseconds
+unsigned long lastDebounceTimeInc = 0;         // variable to store the last button press time
+unsigned long lastDebounceTimeDec = 0;         // variable to store the last button press time
+int numPrograms = 0;
 
 MIDI_CREATE_DEFAULT_INSTANCE();
 
 static void switch1Handler(uint8_t btnId, uint8_t btnState)
 {
+  // Serial.println("Switch 1 pressed");
   if (btnState == BTN_PRESSED)
   {
     ExecuteSwitchLogic(1);
@@ -40,6 +46,8 @@ static void switch1Handler(uint8_t btnId, uint8_t btnState)
 
 static void switch2Handler(uint8_t btnId, uint8_t btnState)
 {
+  // Serial.println("Switch 2 pressed");
+
   if (btnState == BTN_PRESSED)
   {
     ExecuteSwitchLogic(2);
@@ -48,6 +56,7 @@ static void switch2Handler(uint8_t btnId, uint8_t btnState)
 
 static void switch3Handler(uint8_t btnId, uint8_t btnState)
 {
+  // Serial.println("Switch 3 pressed");
   if (btnState == BTN_PRESSED)
   {
     ExecuteSwitchLogic(3);
@@ -56,18 +65,32 @@ static void switch3Handler(uint8_t btnId, uint8_t btnState)
 
 static void nextPresetHandler(uint8_t btnId, uint8_t btnState)
 {
+  // Serial.println("Next preset pressed");
+
   if (btnState == BTN_PRESSED)
   {
     currentPreset++;
+    if (currentPreset >= numPrograms)
+    {
+      currentPreset = 0; // loop back to the start
+    }
+
     ChangePreset();
   }
 }
 
 static void prevPresetHanlder(uint8_t btnId, uint8_t btnState)
 {
+  // Serial.println("Prev preset pressed");
   if (btnState == BTN_PRESSED)
   {
     currentPreset--;
+    if (currentPreset < 0)
+    {
+      //currentPreset = numPrograms - 1; // loop back to the end
+      currentPreset = 0; // loop back to the end
+    }
+
     ChangePreset();
   }
 }
@@ -98,10 +121,10 @@ void ExecuteSwitchLogic(int switchNo)
     {
       int pc = pcEvent["PC"];
       int channel = pcEvent["Channel"];
-      Serial.print("PC: ");
-      Serial.println(pc);
-      Serial.print("Channel: ");
-      Serial.println(channel);
+      // Serial.print("PC: ");
+      // Serial.println(pc);
+      // Serial.print("Channel: ");
+      // Serial.println(channel);
 
       MIDI.sendProgramChange(pc, channel);
     }
@@ -116,14 +139,14 @@ void ExecuteSwitchLogic(int switchNo)
       int ccNumber = cc["CC"];
       int ccValue = cc["Value"];
       int ccChannel = cc["Channel"];
-      Serial.print("CC Number: ");
-      Serial.println(ccNumber);
-      Serial.print("CC Value: ");
-      Serial.println(ccValue);
-      Serial.print("CC Channel: ");
-      Serial.println(ccChannel);
+      // Serial.print("CC Number: ");
+      // Serial.println(ccNumber);
+      // Serial.print("CC Value: ");
+      // Serial.println(ccValue);
+      // Serial.print("CC Channel: ");
+      // Serial.println(ccChannel);
 
-      MIDI.sendControlChange(ccValue, ccNumber, ccChannel);
+      MIDI.sendControlChange(ccNumber, ccValue, ccChannel);
     }
   }
 }
@@ -131,20 +154,20 @@ void ExecuteSwitchLogic(int switchNo)
 void ChangePreset()
 {
 
-  // if end of list, go back to start
+  
 
-  if (currentPreset >= currentIndex)
+  if (currentPreset < 0)
   {
     currentPreset = 0;
   }
 
-  EEPROM.put(address, currentPreset);
-  Serial.println("Change preset called");
-  Serial.println(currentPreset);
+  // EEPROM.put(address, currentPreset);
+  // Serial.println("Change preset called");
+  // Serial.println(currentPreset);
 
   char *fileName = presetList[currentPreset + 1];
 
-  Serial.println(fileName);
+  // Serial.println(fileName);
 
   if (!configFile.open(fileName, O_READ))
   {
@@ -156,8 +179,8 @@ void ChangePreset()
   // Test if parsing succeeds.
   if (error)
   {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.f_str());
+    // Serial.print(F("deserializeJson() failed: "));
+    // Serial.println(error.f_str());
     return;
   }
 
@@ -202,10 +225,10 @@ void ChangePreset()
     {
       int pc = pcEvent["PC"];
       int channel = pcEvent["Channel"];
-      Serial.print("PC: ");
-      Serial.println(pc);
-      Serial.print("Channel: ");
-      Serial.println(channel);
+      // Serial.print("PC: ");
+      // Serial.println(pc);
+      // Serial.print("Channel: ");
+      // Serial.println(channel);
 
       MIDI.sendProgramChange(pc, channel);
     }
@@ -218,14 +241,14 @@ void ChangePreset()
       int ccNumber = ccEvent["CC"];
       int ccValue = ccEvent["Value"];
       int ccChannel = ccEvent["Channel"];
-      Serial.print("CC Number: ");
-      Serial.println(ccNumber);
-      Serial.print("CC Value: ");
-      Serial.println(ccValue);
-      Serial.print("CC Channel: ");
-      Serial.println(ccChannel);
+      // Serial.print("CC Number: ");
+      // Serial.println(ccNumber);
+      // Serial.print("CC Value: ");
+      // Serial.println(ccValue);
+      // Serial.print("CC Channel: ");
+      // Serial.println(ccChannel);
 
-      MIDI.sendControlChange(ccValue, ccNumber, ccChannel);
+      MIDI.sendControlChange(ccNumber, ccValue, ccChannel);
     }
   }
 }
@@ -249,11 +272,12 @@ void setup()
   pinMode(nextPreset, INPUT);
   pinMode(prevPreset, INPUT);
 
-  MIDI.begin(MIDI_CHANNEL_OMNI);
   // Initialize serial port
   Serial.begin(9600);
   while (!Serial)
     continue;
+
+  MIDI.begin(MIDI_CHANNEL_OMNI);
 
   lcd.clear();
   lcd.print("LOADING PRESETS...");
@@ -302,12 +326,14 @@ void GetPresets()
   }
   if (dir.getError())
   {
-    Serial.println("openNext failed");
+    // Serial.println("openNext failed");
   }
   else
   {
-    Serial.println("Done!");
+    // Serial.println("Done!");
   }
+
+  numPrograms = currentIndex;
 }
 
 void BootLCD()
@@ -337,7 +363,7 @@ static void pollButtons()
 
 void loop()
 {
-   pollButtons();
+  pollButtons();
   // currentPreset++;
   // ChangePreset();
   // delay(10000);
