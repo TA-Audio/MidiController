@@ -1,60 +1,43 @@
 {
   "Switch1": {
+    "PC": [
+      {
+        "Channel": 11,
+        "PC": 110
+      }
+    ],
+    "Name": "CH3",
+    "CC": null
+  },
+  "Switch3": {
     "PC": null,
-    "Name": "REV",
+    "Name": "PHASE",
     "CC": [
       {
         "Value": 127,
-        "CC": 1,
-        "Channel": 11
-      },
-      {
-        "Value": 127,
-        "CC": 4,
+        "CC": 19,
         "Channel": 11
       }
     ]
   },
-  "Switch3": {
-    "PC": [
-      {
-        "Channel": 11,
-        "PC": 2
-      }
-    ],
-    "Name": "FUZZ",
-    "CC": null
-  },
-  "Name": "Marshall",
+  "Name": "Diezel MB",
   "OnLoad": {
-    "CC": [
-      {
-        "Value": 127,
-        "CC": 1,
-        "Channel": 11
-      }
-    ],
+    "CC": null,
     "PC": [
       {
         "Channel": 11,
-        "PC": 2
+        "PC": 110
       }
     ]
   },
   "Switch2": {
-    "PC": null,
-    "Name": "REV",
-    "CC": [
+    "PC": [
       {
-        "Value": 127,
-        "CC": 3,
-        "Channel": 11
-      },
-      {
-        "Value": 0,
-        "CC": 5,
-        "Channel": 11
+        "Channel": 11,
+        "PC": 74
       }
-    ]
+    ],
+    "Name": "CH4",
+    "CC": null
   }
 }
