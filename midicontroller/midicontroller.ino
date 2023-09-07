@@ -36,6 +36,8 @@ bool hasLoaded = false;
 unsigned long startMillis;
 unsigned long currentMillis;
 const unsigned long period = 1000;
+const unsigned long switchDisplayPeriod = 1500;
+bool resetPresetDisplay = false;
 
 MIDI_CREATE_DEFAULT_INSTANCE();
 
@@ -111,6 +113,8 @@ void ExecuteSwitchLogic(int switchNo)
 
     // Print the text
     lcd.print(text);
+    startMillis = millis();
+    resetPresetDisplay = true;
   }
 
   if (!switchPC.isNull())
@@ -147,14 +151,14 @@ void ExecuteSwitchLogic(int switchNo)
       MIDI.sendControlChange(ccNumber, ccValue, ccChannel);
     }
   }
-
-  delay(1000);
-  SetPresetDisplayInfo();
-  
 }
 
 void ChangePreset()
 {
+  if (resetPresetDisplay)
+  {
+    resetPresetDisplay = false;
+  }
 
   if (currentPreset < 0)
   {
@@ -375,5 +379,11 @@ void loop()
   {
     hasLoaded = true;
     ChangePreset();
+  }
+
+  if (resetPresetDisplay && currentMillis > (startMillis + switchDisplayPeriod))
+  {
+    resetPresetDisplay = false;
+    SetPresetDisplayInfo();
   }
 }
