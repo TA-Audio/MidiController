@@ -10,11 +10,11 @@
 // Allocate the JSON document
 DynamicJsonDocument doc(1024);
 LiquidCrystal_I2C lcd(0x27, 20, 4); // I2C address 0x27, 20 column and 4 rows
-const int switch1 = 5;
-const int switch2 = 6;
-const int switch3 = 7;
-const int nextPreset = 9;
-const int prevPreset = 10;
+static constexpr int switch1 = 5;
+static constexpr int switch2 = 6;
+static constexpr int switch3 = 7;
+static constexpr int nextPreset = 9;
+static constexpr int prevPreset = 10;
 const int chipSelect = 53;
 int currentPreset = 0;
 int address = 0;
@@ -32,66 +32,44 @@ unsigned long debounceDelay = 50;              // debounce time in milliseconds
 unsigned long lastDebounceTimeInc = 0;         // variable to store the last button press time
 unsigned long lastDebounceTimeDec = 0;         // variable to store the last button press time
 int numPrograms = 0;
+bool hasLoaded = false;
+unsigned long startMillis;
+unsigned long currentMillis;
+const unsigned long period = 1000;
 
 MIDI_CREATE_DEFAULT_INSTANCE();
 
-static void switch1Handler(uint8_t btnId, uint8_t btnState)
+static void switchHandler(uint8_t btnId, uint8_t btnState)
 {
-  // Serial.println("Switch 1 pressed");
-  if (btnState == BTN_PRESSED)
+  if (btnState == BTN_PRESSED && hasLoaded == true)
   {
-    ExecuteSwitchLogic(1);
-  }
-}
+    // Serial.println("Switch pressed");
 
-static void switch2Handler(uint8_t btnId, uint8_t btnState)
-{
-  // Serial.println("Switch 2 pressed");
-
-  if (btnState == BTN_PRESSED)
-  {
-    ExecuteSwitchLogic(2);
-  }
-}
-
-static void switch3Handler(uint8_t btnId, uint8_t btnState)
-{
-  // Serial.println("Switch 3 pressed");
-  if (btnState == BTN_PRESSED)
-  {
-    ExecuteSwitchLogic(3);
-  }
-}
-
-static void nextPresetHandler(uint8_t btnId, uint8_t btnState)
-{
-  // Serial.println("Next preset pressed");
-
-  if (btnState == BTN_PRESSED)
-  {
-    currentPreset++;
-    if (currentPreset >= numPrograms)
+    if (btnId == 1 || btnId == 2 || btnId == 3)
     {
-      currentPreset = 0; // loop back to the start
+      ExecuteSwitchLogic(btnId);
     }
-
-    ChangePreset();
-  }
-}
-
-static void prevPresetHanlder(uint8_t btnId, uint8_t btnState)
-{
-  // Serial.println("Prev preset pressed");
-  if (btnState == BTN_PRESSED)
-  {
-    currentPreset--;
-    if (currentPreset < 0)
+    else if (btnId == 4)
     {
-      //currentPreset = numPrograms - 1; // loop back to the end
-      currentPreset = 0; // loop back to the end
-    }
+      currentPreset++;
+      if (currentPreset >= numPrograms)
+      {
+        currentPreset = 0; // loop back to the start
+      }
 
-    ChangePreset();
+      ChangePreset();
+    }
+    else if (btnId == 5)
+    {
+      currentPreset--;
+      if (currentPreset < 0)
+      {
+        // currentPreset = numPrograms - 1; // loop back to the end
+        currentPreset = 0; // loop back to the end
+      }
+
+      ChangePreset();
+    }
   }
 }
 
@@ -114,6 +92,26 @@ void ExecuteSwitchLogic(int switchNo)
   }
 
   JsonArray switchPC = switchLogic["PC"];
+
+  const char *text = switchLogic["Name"].as<const char *>();
+
+  int textLength = strlen(text);
+
+  if (textLength > 1)
+  {
+    lcd.clear();
+    lcd.setCursor(0, 1);
+    int padding = (20 - textLength) / 2;
+
+    // Print leading spaces for centering
+    for (int i = 0; i < padding; i++)
+    {
+      lcd.print(" ");
+    }
+
+    // Print the text
+    lcd.print(text);
+  }
 
   if (!switchPC.isNull())
   {
@@ -149,12 +147,14 @@ void ExecuteSwitchLogic(int switchNo)
       MIDI.sendControlChange(ccNumber, ccValue, ccChannel);
     }
   }
+
+  delay(1000);
+  SetPresetDisplayInfo();
+  
 }
 
 void ChangePreset()
 {
-
-  
 
   if (currentPreset < 0)
   {
@@ -186,35 +186,7 @@ void ChangePreset()
 
   preset = doc;
 
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(preset["Name"].as<const char *>()); // print message at the second row
-  lcd.setCursor(0, 3);
-  const char *sw1 = preset["Switch1"]["Name"].as<const char *>();
-  const char *sw2 = preset["Switch2"]["Name"].as<const char *>();
-  const char *sw3 = preset["Switch3"]["Name"].as<const char *>();
-  int sw1Length = strlen(sw1);
-  int sw2Length = strlen(sw2);
-  int sw3Length = strlen(sw3);
-
-  // Calculate the padding needed for each string
-  int totalLength = sw1Length + sw2Length + sw3Length;
-  int padding1 = (totalLength < 20) ? (20 - totalLength) / 2 : 0;
-  int padding3 = (totalLength < 20) ? (20 - totalLength + 1) / 2 : 0;
-
-  lcd.print(sw1);
-  for (int i = 0; i < padding1; i++)
-  {
-    lcd.print(" ");
-  }
-
-  lcd.print(sw2);
-
-  for (int i = 0; i < padding3; i++)
-  {
-    lcd.print(" ");
-  }
-  lcd.print(sw3);
+  SetPresetDisplayInfo();
 
   JsonArray onLoadPC = preset["OnLoad"]["PC"];
   JsonArray onLoadCC = preset["OnLoad"]["CC"];
@@ -253,11 +225,44 @@ void ChangePreset()
   }
 }
 
-static Button switch1Button(1, switch1Handler);
-static Button switch2Button(2, switch2Handler);
-static Button switch3Button(3, switch3Handler);
-static Button nextPresetButton(4, nextPresetHandler);
-static Button prevPresetButton(5, prevPresetHanlder);
+void SetPresetDisplayInfo()
+{
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(preset["Name"].as<const char *>()); // print message at the second row
+  lcd.setCursor(0, 3);
+  const char *sw1 = preset["Switch1"]["Name"].as<const char *>();
+  const char *sw2 = preset["Switch2"]["Name"].as<const char *>();
+  const char *sw3 = preset["Switch3"]["Name"].as<const char *>();
+  int sw1Length = strlen(sw1);
+  int sw2Length = strlen(sw2);
+  int sw3Length = strlen(sw3);
+
+  // Calculate the padding needed for each string
+  int totalLength = sw1Length + sw2Length + sw3Length;
+  int padding1 = (totalLength < 20) ? (20 - totalLength) / 2 : 0;
+  int padding3 = (totalLength < 20) ? (20 - totalLength + 1) / 2 : 0;
+
+  lcd.print(sw1);
+  for (int i = 0; i < padding1; i++)
+  {
+    lcd.print(" ");
+  }
+
+  lcd.print(sw2);
+
+  for (int i = 0; i < padding3; i++)
+  {
+    lcd.print(" ");
+  }
+  lcd.print(sw3);
+}
+
+static Button switch1Button(1, switchHandler);
+static Button switch2Button(2, switchHandler);
+static Button switch3Button(3, switchHandler);
+static Button nextPresetButton(4, switchHandler);
+static Button prevPresetButton(5, switchHandler);
 
 void setup()
 {
@@ -298,8 +303,7 @@ void setup()
   // }
 
   currentPreset = 0;
-
-  ChangePreset();
+  startMillis = millis();
 }
 
 void GetPresets()
@@ -363,8 +367,13 @@ static void pollButtons()
 
 void loop()
 {
+  currentMillis = millis();
+
   pollButtons();
-  // currentPreset++;
-  // ChangePreset();
-  // delay(10000);
+  delay(25);
+  if (!hasLoaded && currentMillis - startMillis >= period)
+  {
+    hasLoaded = true;
+    ChangePreset();
+  }
 }
