@@ -6,12 +6,14 @@
         "PC": 110
       }
     ],
+    "Toggle": false,
     "Name": "CH3",
     "CC": null
   },
   "Switch3": {
     "PC": null,
     "Name": "PHASE",
+    "Toggle": true,
     "CC": [
       {
         "Value": 127,
@@ -38,6 +40,8 @@
       }
     ],
     "Name": "CH4",
-    "CC": null
+    "CC": null,
+    "Toggle": false
+
   }
 }

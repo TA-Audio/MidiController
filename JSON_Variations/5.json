@@ -1,60 +1,46 @@
 {
   "Switch1": {
+    "PC": [
+      {
+        "Channel": 11,
+        "PC": 6
+      }
+    ],
+    "Name": "Intro",
+    "Toggle": false,
+    "CC": null
+  },
+  "Switch3": {
     "PC": null,
-    "Name": "FUZZ",
+    "Name": "PHASE",
+    "Toggle": true,
     "CC": [
       {
         "Value": 127,
-        "CC": 1,
-        "Channel": 11
-      },
-      {
-        "Value": 127,
-        "CC": 4,
+        "CC": 19,
         "Channel": 11
       }
     ]
   },
-  "Switch3": {
-    "PC": [
-      {
-        "Channel": 11,
-        "PC": 2
-      }
-    ],
-    "Name": "FUZZ",
-    "CC": null
-  },
-  "Name": "Mesa Boogie",
+  "Name": "Stockholm Syndrome",
   "OnLoad": {
-    "CC": [
-      {
-        "Value": 127,
-        "CC": 1,
-        "Channel": 11
-      }
-    ],
+    "CC": null,
     "PC": [
       {
         "Channel": 11,
-        "PC": 2
+        "PC": 6
       }
     ]
   },
   "Switch2": {
-    "PC": null,
-    "Name": "PITCH",
-    "CC": [
+    "PC": [
       {
-        "Value": 127,
-        "CC": 3,
-        "Channel": 11
-      },
-      {
-        "Value": 0,
-        "CC": 5,
-        "Channel": 11
+        "Channel": 11,
+        "PC": 74
       }
-    ]
+    ],
+    "Name": "Normal",
+    "Toggle": false,
+    "CC": null
   }
 }

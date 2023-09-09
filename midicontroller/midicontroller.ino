@@ -38,6 +38,9 @@ unsigned long currentMillis;
 const unsigned long period = 1000;
 const unsigned long switchDisplayPeriod = 1500;
 bool resetPresetDisplay = false;
+bool switchOneToggled = false;
+bool switchTwoToggled = false;
+bool switchThreeToggled = false;
 
 MIDI_CREATE_DEFAULT_INSTANCE();
 
@@ -95,7 +98,59 @@ void ExecuteSwitchLogic(int switchNo)
 
   JsonArray switchPC = switchLogic["PC"];
 
-  const char *text = switchLogic["Name"].as<const char *>();
+  const char *tempText = switchLogic["Name"].as<const char *>();
+  char text[50];
+  bool toggle = switchLogic["Toggle"].as<bool>();
+
+  char *onText = " On!";
+  char *offText = " Off!";
+
+  if (toggle)
+  {
+    switch (switchNo)
+    {
+    case 1:
+      if (!switchOneToggled)
+      {
+        strcpy(text, tempText);
+        strcat(text, onText);
+      }
+      else
+      {
+        strcpy(text, tempText);
+        strcat(text, offText);
+      }
+      break;
+    case 2:
+      if (!switchTwoToggled)
+      {
+        strcpy(text, tempText);
+        strcat(text, onText);
+      }
+      else
+      {
+        strcpy(text, tempText);
+        strcat(text, offText);
+      }
+      break;
+    case 3:
+      if (!switchThreeToggled)
+      {
+        strcpy(text, tempText);
+        strcat(text, onText);
+      }
+      else
+      {
+        strcpy(text, tempText);
+        strcat(text, offText);
+      }
+      break;
+    }
+  }
+  else
+  {
+    strcpy(text, tempText);
+  }
 
   int textLength = strlen(text);
 
@@ -140,6 +195,50 @@ void ExecuteSwitchLogic(int switchNo)
     {
       int ccNumber = cc["CC"];
       int ccValue = cc["Value"];
+
+      switch (switchNo)
+      {
+      case 1:
+        if (toggle && switchOneToggled)
+        {
+          ccValue = 0;
+          switchOneToggled = false;
+        }
+        else if (toggle && !switchOneToggled)
+        {
+          ccValue = 127;
+          switchOneToggled = true;
+        }
+
+        break;
+      case 2:
+        if (toggle && switchTwoToggled)
+        {
+          ccValue = 0;
+          switchTwoToggled = false;
+        }
+        else if (toggle && !switchTwoToggled)
+        {
+          ccValue = 127;
+          switchTwoToggled = true;
+        }
+
+        break;
+      case 3:
+        if (toggle && switchThreeToggled)
+        {
+          ccValue = 0;
+          switchThreeToggled = false;
+        }
+        else if (toggle && !switchThreeToggled)
+        {
+          ccValue = 127;
+          switchThreeToggled = true;
+        }
+
+        break;
+      }
+
       int ccChannel = cc["Channel"];
       // Serial.print("CC Number: ");
       // Serial.println(ccNumber);
@@ -164,6 +263,10 @@ void ChangePreset()
   {
     currentPreset = 0;
   }
+
+  switchOneToggled = false;
+  switchTwoToggled = false;
+  switchThreeToggled = false;
 
   // EEPROM.put(address, currentPreset);
   // Serial.println("Change preset called");

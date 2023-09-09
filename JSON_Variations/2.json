@@ -1,58 +1,46 @@
 {
   "Switch1": {
     "PC": null,
-    "Name": "DLAY",
+    "Name": "TubeS",
+    "Toggle": true,
     "CC": [
       {
         "Value": 127,
-        "CC": 1,
-        "Channel": 11
-      },
-      {
-        "Value": 127,
-        "CC": 4,
+        "CC": 18,
         "Channel": 11
       }
     ]
   },
   "Switch3": {
-    "PC": [
-      {
-        "Channel": 11,
-        "PC": 2
-      }
-    ],
-    "Name": "DIST",
-    "CC": null
-  },
-  "Name": "Mesa Boogie",
-  "OnLoad": {
+    "PC": null,
+    "Toggle": true,
+    "Name": "MUFF",
     "CC": [
       {
         "Value": 127,
-        "CC": 1,
+        "CC": 20,
         "Channel": 11
       }
-    ],
+    ]
+  },
+  "Name": "65 Vibralux",
+  "OnLoad": {
+    "CC": null,
     "PC": [
       {
         "Channel": 11,
-        "PC": 2
+        "PC": 114
       }
     ]
   },
   "Switch2": {
     "PC": null,
-    "Name": "REV",
+    "Name": "DIST",
+    "Toggle": true,
     "CC": [
       {
         "Value": 127,
-        "CC": 3,
-        "Channel": 11
-      },
-      {
-        "Value": 0,
-        "CC": 5,
+        "CC": 19,
         "Channel": 11
       }
     ]
