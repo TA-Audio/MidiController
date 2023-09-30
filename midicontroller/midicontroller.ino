@@ -274,7 +274,7 @@ void ChangePreset()
   // Serial.println(currentPreset);
 
   // if saved currentPreset value is greater than the number of presets, reset to 0
-  if (currentPreset + 1 >= numPrograms - 1)
+  if (currentPreset + 1 >= numPrograms)
   {
     currentPreset = 0;
     ChangePreset();
@@ -290,14 +290,6 @@ void ChangePreset()
   }
 
   DeserializationError error = deserializeJson(doc, configFile);
-
-  // Test if parsing succeeds.
-  if (error)
-  {
-    // Serial.print(F("deserializeJson() failed: "));
-    // Serial.println(error.f_str());
-    return;
-  }
 
   preset = doc;
 
