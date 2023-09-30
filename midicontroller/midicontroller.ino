@@ -56,10 +56,13 @@ static void switchHandler(uint8_t btnId, uint8_t btnState)
     }
     else if (btnId == 4)
     {
-      currentPreset++;
-      if (currentPreset >= numPrograms)
+      if (currentPreset + 1 >= numPrograms - 1)
       {
-        currentPreset = 0; // loop back to the start
+        return;
+      }
+      else
+      {
+        currentPreset++;
       }
 
       ChangePreset();
@@ -69,8 +72,7 @@ static void switchHandler(uint8_t btnId, uint8_t btnState)
       currentPreset--;
       if (currentPreset < 0)
       {
-        // currentPreset = numPrograms - 1; // loop back to the end
-        currentPreset = 0; // loop back to the end
+        currentPreset = 0;
       }
 
       ChangePreset();
@@ -457,7 +459,7 @@ void BootLCD()
   lcd.setCursor(0, 2);          // move cursor to the third row
   lcd.print("MIDI CONTROLLER"); // print message at the third row
   lcd.setCursor(0, 3);          // move cursor to the fourth row
-  lcd.print("v0.0.1");          // print message the fourth row
+  lcd.print("v0.0.2");          // print message the fourth row
   delay(4000);
 }
 
