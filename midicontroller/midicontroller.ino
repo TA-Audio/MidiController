@@ -270,9 +270,16 @@ void ChangePreset()
   switchTwoToggled = false;
   switchThreeToggled = false;
 
-  // EEPROM.put(address, currentPreset);
+  EEPROM.put(address, currentPreset);
   // Serial.println("Change preset called");
   // Serial.println(currentPreset);
+
+  //if saved eeprom value is greater than the number of presets, reset to 0
+  if (currentPreset + 1 >= numPrograms - 1)
+  {
+    currentPreset = 0;
+    ChangePreset();
+  }
 
   char *fileName = presetList[currentPreset + 1];
 
@@ -405,13 +412,8 @@ void setup()
 
   // Serial.println(doc.memoryUsage());
 
-  // currentPreset = EEPROM.get(address, readValue);
-  // if (currentPreset == -1)
-  // {
-  //   currentPreset = 0;
-  // }
-
-  currentPreset = 0;
+  currentPreset = EEPROM.get(address, readValue);
+ 
   startMillis = millis();
 }
 
