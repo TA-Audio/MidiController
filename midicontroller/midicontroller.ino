@@ -270,11 +270,10 @@ void ChangePreset()
   switchTwoToggled = false;
   switchThreeToggled = false;
 
-  EEPROM.put(address, currentPreset);
   // Serial.println("Change preset called");
   // Serial.println(currentPreset);
 
-  //if saved eeprom value is greater than the number of presets, reset to 0
+  // if saved currentPreset value is greater than the number of presets, reset to 0
   if (currentPreset + 1 >= numPrograms - 1)
   {
     currentPreset = 0;
@@ -301,8 +300,6 @@ void ChangePreset()
   }
 
   preset = doc;
-
-  SetPresetDisplayInfo();
 
   JsonArray onLoadPC = preset["OnLoad"]["PC"];
   JsonArray onLoadCC = preset["OnLoad"]["CC"];
@@ -339,6 +336,9 @@ void ChangePreset()
       MIDI.sendControlChange(ccNumber, ccValue, ccChannel);
     }
   }
+
+  SetPresetDisplayInfo();
+  EEPROM.put(address, currentPreset);
 }
 
 void SetPresetDisplayInfo()
@@ -346,10 +346,11 @@ void SetPresetDisplayInfo()
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(preset["Name"].as<const char *>()); // print message at the second row
-  lcd.setCursor(0, 3);
+
   const char *sw1 = preset["Switch1"]["Name"].as<const char *>();
   const char *sw2 = preset["Switch2"]["Name"].as<const char *>();
   const char *sw3 = preset["Switch3"]["Name"].as<const char *>();
+
   int sw1Length = strlen(sw1);
   int sw2Length = strlen(sw2);
   int sw3Length = strlen(sw3);
@@ -359,6 +360,42 @@ void SetPresetDisplayInfo()
   int padding1 = (totalLength < 20) ? (20 - totalLength) / 2 : 0;
   int padding3 = (totalLength < 20) ? (20 - totalLength + 1) / 2 : 0;
 
+  char *sw1Indicator = new char[sw1Length + 1](); // Allocate memory and initialize to 0
+  char *sw2Indicator = new char[sw2Length + 1](); // Allocate memory and initialize to 0
+  char *sw3Indicator = new char[sw3Length + 1](); // Allocate memory and initialize to 0
+
+  lcd.setCursor(0, 2);
+
+  for (int i = 0; i < sw1Length; i++)
+  {
+    sw1Indicator[i] = (switchOneToggled) ? '*' : ' ';
+  }
+
+  for (int i = 0; i < sw2Length; i++)
+  {
+    sw2Indicator[i] = (switchTwoToggled) ? '*' : ' ';
+  }
+
+  for (int i = 0; i < sw3Length; i++)
+  {
+    sw3Indicator[i] = (switchThreeToggled) ? '*' : ' ';
+  }
+
+  lcd.print(sw1Indicator);
+  for (int i = 0; i < padding1; i++)
+  {
+    lcd.print(" ");
+  }
+
+  lcd.print(sw2Indicator);
+
+  for (int i = 0; i < padding3; i++)
+  {
+    lcd.print(" ");
+  }
+  lcd.print(sw3Indicator);
+
+  lcd.setCursor(0, 3);
   lcd.print(sw1);
   for (int i = 0; i < padding1; i++)
   {
@@ -372,6 +409,11 @@ void SetPresetDisplayInfo()
     lcd.print(" ");
   }
   lcd.print(sw3);
+
+  // Free allocated memory for indicators
+  delete[] sw1Indicator;
+  delete[] sw2Indicator;
+  delete[] sw3Indicator;
 }
 
 static Button switch1Button(1, switchHandler);
@@ -413,7 +455,7 @@ void setup()
   // Serial.println(doc.memoryUsage());
 
   currentPreset = EEPROM.get(address, readValue);
- 
+
   startMillis = millis();
 }
 
