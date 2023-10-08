@@ -185,7 +185,7 @@ void ExecuteSwitchLogic(int switchNo)
       // Serial.print("Channel: ");
       // Serial.println(channel);
 
-      MIDI.sendProgramChange(pc, channel);
+      MIDI.sendProgramChange(pc - 1, channel);
     }
   }
 
@@ -307,7 +307,7 @@ void ChangePreset()
       // Serial.print("Channel: ");
       // Serial.println(channel);
 
-      MIDI.sendProgramChange(pc, channel);
+      MIDI.sendProgramChange(pc - 1, channel);
     }
   }
 
@@ -428,9 +428,7 @@ void setup()
   pinMode(prevPreset, INPUT);
 
   // Initialize serial port
-  Serial.begin(9600);
-  while (!Serial)
-    continue;
+  // Serial.begin(9600);
 
   MIDI.begin(MIDI_CHANNEL_OMNI);
 
