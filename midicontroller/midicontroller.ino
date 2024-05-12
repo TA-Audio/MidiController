@@ -7,9 +7,10 @@
 #include "SdFat.h"
 #include <debounce.h>
 
+
 // Allocate the JSON document
 DynamicJsonDocument doc(1024);
-LiquidCrystal_I2C lcd(0x27, 20, 4); // I2C address 0x27, 20 column and 4 rows
+LiquidCrystal_I2C lcd(0x27, 20, 4);  // I2C address 0x27, 20 column and 4 rows
 static constexpr int switch1 = 5;
 static constexpr int switch2 = 6;
 static constexpr int switch3 = 7;
@@ -24,13 +25,13 @@ SdFile configFile;
 JsonVariant preset;
 FsFile dir;
 FsFile file;
-const int maxListSize = 150;                   // Maximum number of words
-const int maxStringLength = 25;                // Maximum length of each word
-char presetList[maxListSize][maxStringLength]; // Array to store strings
-int currentIndex = 0;                          // Current index in the array
-unsigned long debounceDelay = 50;              // debounce time in milliseconds
-unsigned long lastDebounceTimeInc = 0;         // variable to store the last button press time
-unsigned long lastDebounceTimeDec = 0;         // variable to store the last button press time
+const int maxListSize = 150;                    // Maximum number of words
+const int maxStringLength = 25;                 // Maximum length of each word
+char presetList[maxListSize][maxStringLength];  // Array to store strings
+int currentIndex = 0;                           // Current index in the array
+unsigned long debounceDelay = 50;               // debounce time in milliseconds
+unsigned long lastDebounceTimeInc = 0;          // variable to store the last button press time
+unsigned long lastDebounceTimeDec = 0;          // variable to store the last button press time
 int numPrograms = 0;
 bool hasLoaded = false;
 unsigned long startMillis;
@@ -44,34 +45,23 @@ bool switchThreeToggled = false;
 
 MIDI_CREATE_DEFAULT_INSTANCE();
 
-static void switchHandler(uint8_t btnId, uint8_t btnState)
-{
-  if (btnState == BTN_PRESSED && hasLoaded == true)
-  {
+static void switchHandler(uint8_t btnId, uint8_t btnState) {
+  if (btnState == BTN_PRESSED && hasLoaded == true) {
     // Serial.println("Switch pressed");
 
-    if (btnId == 1 || btnId == 2 || btnId == 3)
-    {
+    if (btnId == 1 || btnId == 2 || btnId == 3) {
       ExecuteSwitchLogic(btnId);
-    }
-    else if (btnId == 4)
-    {
-      if (currentPreset + 1 >= numPrograms - 1)
-      {
+    } else if (btnId == 4) {
+      if (currentPreset + 1 >= numPrograms - 1) {
         return;
-      }
-      else
-      {
+      } else {
         currentPreset++;
       }
 
       ChangePreset();
-    }
-    else if (btnId == 5)
-    {
+    } else if (btnId == 5) {
       currentPreset--;
-      if (currentPreset < 0)
-      {
+      if (currentPreset < 0) {
         currentPreset = 0;
       }
 
@@ -80,22 +70,20 @@ static void switchHandler(uint8_t btnId, uint8_t btnState)
   }
 }
 
-void ExecuteSwitchLogic(int switchNo)
-{
+void ExecuteSwitchLogic(int switchNo) {
 
   JsonObject switchLogic;
 
-  switch (switchNo)
-  {
-  case 1:
-    switchLogic = preset["Switch1"];
-    break;
-  case 2:
-    switchLogic = preset["Switch2"];
-    break;
-  case 3:
-    switchLogic = preset["Switch3"];
-    break;
+  switch (switchNo) {
+    case 1:
+      switchLogic = preset["Switch1"];
+      break;
+    case 2:
+      switchLogic = preset["Switch2"];
+      break;
+    case 3:
+      switchLogic = preset["Switch3"];
+      break;
   }
 
   JsonArray switchPC = switchLogic["PC"];
@@ -107,64 +95,49 @@ void ExecuteSwitchLogic(int switchNo)
   char *onText = " On!";
   char *offText = " Off!";
 
-  if (toggle)
-  {
-    switch (switchNo)
-    {
-    case 1:
-      if (!switchOneToggled)
-      {
-        strcpy(text, tempText);
-        strcat(text, onText);
-      }
-      else
-      {
-        strcpy(text, tempText);
-        strcat(text, offText);
-      }
-      break;
-    case 2:
-      if (!switchTwoToggled)
-      {
-        strcpy(text, tempText);
-        strcat(text, onText);
-      }
-      else
-      {
-        strcpy(text, tempText);
-        strcat(text, offText);
-      }
-      break;
-    case 3:
-      if (!switchThreeToggled)
-      {
-        strcpy(text, tempText);
-        strcat(text, onText);
-      }
-      else
-      {
-        strcpy(text, tempText);
-        strcat(text, offText);
-      }
-      break;
+  if (toggle) {
+    switch (switchNo) {
+      case 1:
+        if (!switchOneToggled) {
+          strcpy(text, tempText);
+          strcat(text, onText);
+        } else {
+          strcpy(text, tempText);
+          strcat(text, offText);
+        }
+        break;
+      case 2:
+        if (!switchTwoToggled) {
+          strcpy(text, tempText);
+          strcat(text, onText);
+        } else {
+          strcpy(text, tempText);
+          strcat(text, offText);
+        }
+        break;
+      case 3:
+        if (!switchThreeToggled) {
+          strcpy(text, tempText);
+          strcat(text, onText);
+        } else {
+          strcpy(text, tempText);
+          strcat(text, offText);
+        }
+        break;
     }
-  }
-  else
-  {
+  } else {
     strcpy(text, tempText);
   }
 
   int textLength = strlen(text);
 
-  if (textLength > 1)
-  {
+  if (textLength > 1) {
     lcd.clear();
     lcd.setCursor(0, 1);
     int padding = (20 - textLength) / 2;
 
     // Print leading spaces for centering
-    for (int i = 0; i < padding; i++)
-    {
+    for (int i = 0; i < padding; i++) {
       lcd.print(" ");
     }
 
@@ -174,10 +147,8 @@ void ExecuteSwitchLogic(int switchNo)
     resetPresetDisplay = true;
   }
 
-  if (!switchPC.isNull())
-  {
-    for (JsonVariant pcEvent : switchPC)
-    {
+  if (!switchPC.isNull()) {
+    for (JsonVariant pcEvent : switchPC) {
       int pc = pcEvent["PC"];
       int channel = pcEvent["Channel"];
       // Serial.print("PC: ");
@@ -191,54 +162,42 @@ void ExecuteSwitchLogic(int switchNo)
 
   JsonArray ccArray = switchLogic["CC"];
 
-  if (!ccArray.isNull())
-  {
-    for (JsonVariant cc : ccArray)
-    {
+  if (!ccArray.isNull()) {
+    for (JsonVariant cc : ccArray) {
       int ccNumber = cc["CC"];
       int ccValue = cc["Value"];
 
-      switch (switchNo)
-      {
-      case 1:
-        if (toggle && switchOneToggled)
-        {
-          ccValue = 0;
-          switchOneToggled = false;
-        }
-        else if (toggle && !switchOneToggled)
-        {
-          ccValue = 127;
-          switchOneToggled = true;
-        }
+      switch (switchNo) {
+        case 1:
+          if (toggle && switchOneToggled) {
+            ccValue = 0;
+            switchOneToggled = false;
+          } else if (toggle && !switchOneToggled) {
+            ccValue = 127;
+            switchOneToggled = true;
+          }
 
-        break;
-      case 2:
-        if (toggle && switchTwoToggled)
-        {
-          ccValue = 0;
-          switchTwoToggled = false;
-        }
-        else if (toggle && !switchTwoToggled)
-        {
-          ccValue = 127;
-          switchTwoToggled = true;
-        }
+          break;
+        case 2:
+          if (toggle && switchTwoToggled) {
+            ccValue = 0;
+            switchTwoToggled = false;
+          } else if (toggle && !switchTwoToggled) {
+            ccValue = 127;
+            switchTwoToggled = true;
+          }
 
-        break;
-      case 3:
-        if (toggle && switchThreeToggled)
-        {
-          ccValue = 0;
-          switchThreeToggled = false;
-        }
-        else if (toggle && !switchThreeToggled)
-        {
-          ccValue = 127;
-          switchThreeToggled = true;
-        }
+          break;
+        case 3:
+          if (toggle && switchThreeToggled) {
+            ccValue = 0;
+            switchThreeToggled = false;
+          } else if (toggle && !switchThreeToggled) {
+            ccValue = 127;
+            switchThreeToggled = true;
+          }
 
-        break;
+          break;
       }
 
       int ccChannel = cc["Channel"];
@@ -254,15 +213,12 @@ void ExecuteSwitchLogic(int switchNo)
   }
 }
 
-void ChangePreset()
-{
-  if (resetPresetDisplay)
-  {
+void ChangePreset() {
+  if (resetPresetDisplay) {
     resetPresetDisplay = false;
   }
 
-  if (currentPreset < 0)
-  {
+  if (currentPreset < 0) {
     currentPreset = 0;
   }
 
@@ -274,8 +230,7 @@ void ChangePreset()
   // Serial.println(currentPreset);
 
   // if saved currentPreset value is greater than the number of presets, reset to 0
-  if (currentPreset + 1 >= numPrograms)
-  {
+  if (currentPreset + 1 >= numPrograms) {
     currentPreset = 0;
     ChangePreset();
   }
@@ -284,8 +239,7 @@ void ChangePreset()
 
   // Serial.println(fileName);
 
-  if (!configFile.open(fileName, O_READ))
-  {
+  if (!configFile.open(fileName, O_READ)) {
     sd.errorHalt("sd error");
   }
 
@@ -296,10 +250,8 @@ void ChangePreset()
   JsonArray onLoadPC = preset["OnLoad"]["PC"];
   JsonArray onLoadCC = preset["OnLoad"]["CC"];
 
-  if (!onLoadPC.isNull())
-  {
-    for (JsonVariant pcEvent : onLoadPC)
-    {
+  if (!onLoadPC.isNull()) {
+    for (JsonVariant pcEvent : onLoadPC) {
       int pc = pcEvent["PC"];
       int channel = pcEvent["Channel"];
       // Serial.print("PC: ");
@@ -311,10 +263,8 @@ void ChangePreset()
     }
   }
 
-  if (!onLoadCC.isNull())
-  {
-    for (JsonVariant ccEvent : onLoadCC)
-    {
+  if (!onLoadCC.isNull()) {
+    for (JsonVariant ccEvent : onLoadCC) {
       int ccNumber = ccEvent["CC"];
       int ccValue = ccEvent["Value"];
       int ccChannel = ccEvent["Channel"];
@@ -333,11 +283,10 @@ void ChangePreset()
   EEPROM.put(address, currentPreset);
 }
 
-void SetPresetDisplayInfo()
-{
+void SetPresetDisplayInfo() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print(preset["Name"].as<const char *>()); // print message at the second row
+  lcd.print(preset["Name"].as<const char *>());  // print message at the second row
 
   const char *sw1 = preset["Switch1"]["Name"].as<const char *>();
   const char *sw2 = preset["Switch2"]["Name"].as<const char *>();
@@ -352,52 +301,45 @@ void SetPresetDisplayInfo()
   int padding1 = (totalLength < 20) ? (20 - totalLength) / 2 : 0;
   int padding3 = (totalLength < 20) ? (20 - totalLength + 1) / 2 : 0;
 
-  char *sw1Indicator = new char[sw1Length + 1](); // Allocate memory and initialize to 0
-  char *sw2Indicator = new char[sw2Length + 1](); // Allocate memory and initialize to 0
-  char *sw3Indicator = new char[sw3Length + 1](); // Allocate memory and initialize to 0
+  char *sw1Indicator = new char[sw1Length + 1]();  // Allocate memory and initialize to 0
+  char *sw2Indicator = new char[sw2Length + 1]();  // Allocate memory and initialize to 0
+  char *sw3Indicator = new char[sw3Length + 1]();  // Allocate memory and initialize to 0
 
   lcd.setCursor(0, 2);
 
-  for (int i = 0; i < sw1Length; i++)
-  {
+  for (int i = 0; i < sw1Length; i++) {
     sw1Indicator[i] = (switchOneToggled) ? '*' : ' ';
   }
 
-  for (int i = 0; i < sw2Length; i++)
-  {
+  for (int i = 0; i < sw2Length; i++) {
     sw2Indicator[i] = (switchTwoToggled) ? '*' : ' ';
   }
 
-  for (int i = 0; i < sw3Length; i++)
-  {
+  for (int i = 0; i < sw3Length; i++) {
     sw3Indicator[i] = (switchThreeToggled) ? '*' : ' ';
   }
 
   lcd.print(sw1Indicator);
-  for (int i = 0; i < padding1; i++)
-  {
+  for (int i = 0; i < padding1; i++) {
     lcd.print(" ");
   }
 
   lcd.print(sw2Indicator);
 
-  for (int i = 0; i < padding3; i++)
-  {
+  for (int i = 0; i < padding3; i++) {
     lcd.print(" ");
   }
   lcd.print(sw3Indicator);
 
   lcd.setCursor(0, 3);
   lcd.print(sw1);
-  for (int i = 0; i < padding1; i++)
-  {
+  for (int i = 0; i < padding1; i++) {
     lcd.print(" ");
   }
 
   lcd.print(sw2);
 
-  for (int i = 0; i < padding3; i++)
-  {
+  for (int i = 0; i < padding3; i++) {
     lcd.print(" ");
   }
   lcd.print(sw3);
@@ -414,10 +356,9 @@ static Button switch3Button(3, switchHandler);
 static Button nextPresetButton(4, switchHandler);
 static Button prevPresetButton(5, switchHandler);
 
-void setup()
-{
+void setup() {
 
-  lcd.init(); // initialize the lcd
+  lcd.init();  // initialize the lcd
   lcd.backlight();
   BootLCD();
 
@@ -449,8 +390,7 @@ void setup()
   startMillis = millis();
 }
 
-void GetPresets()
-{
+void GetPresets() {
 
   // Open root directory
   dir.open("/");
@@ -458,47 +398,74 @@ void GetPresets()
   // create an array for each file name
   // filenames = new String[dir.count()];
 
-  while (file.openNext(&dir, O_RDONLY))
-  {
+  while (file.openNext(&dir, O_RDONLY)) {
 
-    int max_characters = 25;     // guess the needed characters
-    char f_name[max_characters]; // the filename variable you want
+    int max_characters = 25;      // guess the needed characters
+    char f_name[max_characters];  // the filename variable you want
     file.getName(f_name, max_characters);
     // Serial.println(f_name);
 
     strncpy(presetList[currentIndex], f_name, maxStringLength);
-    currentIndex++; // Increment the list length
+    //strncpy(tempPresets[presetCount], f_name, maxStringLength);
+
+    currentIndex++;  // Increment the list length
 
     file.close();
   }
-  if (dir.getError())
-  {
+
+  if (dir.getError()) {
     // Serial.println("openNext failed");
-  }
-  else
-  {
+  } else {
     // Serial.println("Done!");
   }
+
+  // Sort presetList numerically
+  for (int i = 0; i < currentIndex - 1; i++) {
+    for (int j = 0; j < currentIndex - i - 1; j++) {
+      // Extract numbers from filenames
+      int num1 = extractNumber(presetList[j]);
+      int num2 = extractNumber(presetList[j + 1]);
+
+      // Compare the extracted numbers
+      if (num1 > num2) {
+        char temp[maxStringLength];
+        strncpy(temp, presetList[j], maxStringLength);
+        strncpy(presetList[j], presetList[j + 1], maxStringLength);
+        strncpy(presetList[j + 1], temp, maxStringLength);
+      }
+    }
+  }
+
+
 
   numPrograms = currentIndex;
 }
 
-void BootLCD()
-{
+// Function to extract number from filename
+int extractNumber(const char *filename) {
+  int num = 0;
+  int i = 0;
+  while (filename[i] != '\0' && filename[i] >= '0' && filename[i] <= '9') {
+    num = num * 10 + (filename[i] - '0');
+    i++;
+  }
+  return num;
+}
 
-  lcd.setCursor(0, 0);          // move cursor the first row
-  lcd.print("TA Audio");        // print message at the first row
-  lcd.setCursor(0, 1);          // move cursor to the second row
-  lcd.print("SYNAPSE");         // print message at the second row
-  lcd.setCursor(0, 2);          // move cursor to the third row
-  lcd.print("MIDI CONTROLLER"); // print message at the third row
-  lcd.setCursor(0, 3);          // move cursor to the fourth row
-  lcd.print("v0.0.2");          // print message the fourth row
+void BootLCD() {
+
+  lcd.setCursor(0, 0);           // move cursor the first row
+  lcd.print("TA Audio");         // print message at the first row
+  lcd.setCursor(0, 1);           // move cursor to the second row
+  lcd.print("SYNAPSE");          // print message at the second row
+  lcd.setCursor(0, 2);           // move cursor to the third row
+  lcd.print("MIDI CONTROLLER");  // print message at the third row
+  lcd.setCursor(0, 3);           // move cursor to the fourth row
+  lcd.print("v0.0.3");           // print message the fourth row
   delay(4000);
 }
 
-static void pollButtons()
-{
+static void pollButtons() {
   // update() will call buttonHandler() if PIN transitions to a new state and stays there
   // for multiple reads over 25+ ms.
   switch1Button.update(digitalRead(switch1));
@@ -508,20 +475,17 @@ static void pollButtons()
   prevPresetButton.update(digitalRead(prevPreset));
 }
 
-void loop()
-{
+void loop() {
   currentMillis = millis();
 
   pollButtons();
   delay(25);
-  if (!hasLoaded && currentMillis - startMillis >= period)
-  {
+  if (!hasLoaded && currentMillis - startMillis >= period) {
     hasLoaded = true;
     ChangePreset();
   }
 
-  if (resetPresetDisplay && currentMillis > (startMillis + switchDisplayPeriod))
-  {
+  if (resetPresetDisplay && currentMillis > (startMillis + switchDisplayPeriod)) {
     resetPresetDisplay = false;
     SetPresetDisplayInfo();
   }
