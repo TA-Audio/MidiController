@@ -14,17 +14,45 @@ const int SDCARD_CS_PIN = 10;
 const int SDCARD_MOSI_PIN = 11;
 const int SDCARD_MISO_PIN = 12;
 const int SDCARD_SCK_PIN = 13;
-
-
+bool hasLoaded = false;
+bool switchOneToggled = false;
+bool switchTwoToggled = false;
+bool switchThreeToggled = false;
+unsigned long startMillis;
+unsigned long currentMillis;
+const unsigned long period = 1000;
+const unsigned long switchDisplayPeriod = 1500;
+bool resetPresetDisplay = false;
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // I2C address 0x27, 20 column and 4 rows
-
-
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI1);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, MIDI2);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial3, MIDI3);
 
+void ChangePreset() {
+}
+
+void SetPresetDisplayInfo() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+}
+
 static void switchHandler(uint8_t btnId, uint8_t btnState) {
+}
+
+void BootLCD() {
+
+  lcd.setCursor(0, 0);           // move cursor the first row
+  lcd.print("TA Audio");         // print message at the first row
+  lcd.setCursor(0, 1);           // move cursor to the second row
+  lcd.print("SYNAPSE");          // print message at the second row
+  lcd.setCursor(0, 2);           // move cursor to the third row
+  lcd.print("MIDI CONTROLLER");  // print message at the third row
+  lcd.setCursor(0, 3);           // move cursor to the fourth row
+  lcd.print("v0.1.0");           // print message the fourth row
+
+  //Change to use millis to setup can continue whilst lcb boot seq is shown
+  delay(4000);
 }
 
 static Button switch1Button(1, switchHandler);
@@ -37,6 +65,7 @@ void setup() {
 
   lcd.init();  // initialize the lcd
   lcd.backlight();
+  BootLCD();
 
   // initialize the digital pin as an output.
   pinMode(13, OUTPUT);
@@ -58,11 +87,11 @@ void setup() {
   SPI.setMISO(SDCARD_MISO_PIN);
 
   // Initialize SD
-  if (!SD.begin(SDCARD_CS_PIN)) {
-    // DEBUGS("\nSD init fail!");
-    while (true)
-      ;
-  }
+  // if (!SD.begin(SDCARD_CS_PIN)) {
+  //   // DEBUGS("\nSD init fail!");
+  //   while (true)
+  //     ;
+  // }
 }
 
 static void pollButtons() {
@@ -77,8 +106,7 @@ static void pollButtons() {
 
 void loop() {
 
-  pollButtons();
-
+  currentMillis = millis();
 
   digitalWrite(13, HIGH);  // set the LED on
   delay(1000);             // wait for a second
@@ -99,5 +127,16 @@ void loop() {
                MIDI3.getData1(),
                MIDI3.getData2(),
                MIDI3.getChannel());
+  }
+
+  pollButtons();
+  if (!hasLoaded && currentMillis - startMillis >= period) {
+    hasLoaded = true;
+    ChangePreset();
+  }
+
+  if (resetPresetDisplay && currentMillis > (startMillis + switchDisplayPeriod)) {
+    resetPresetDisplay = false;
+    SetPresetDisplayInfo();
   }
 }
