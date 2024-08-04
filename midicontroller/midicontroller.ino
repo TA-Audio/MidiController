@@ -4,6 +4,7 @@
 #include <EEPROM.h>
 #include <LiquidCrystal_I2C.h>
 #include <SD.h>
+#include "USBHost_t36.h"
 
 static constexpr int switch1 = 2;
 static constexpr int switch2 = 3;
@@ -28,6 +29,9 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);  // I2C address 0x27, 20 column and 4 rows
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI1);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, MIDI2);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial3, MIDI3);
+
+USBHost usbHost;
+MIDIDevice USBMIDI(usbHost);
 
 void ChangePreset() {
 }
@@ -67,6 +71,12 @@ void setup() {
   lcd.backlight();
   BootLCD();
 
+  // Wait 1.5 seconds before turning on USB Host.  If connected USB devices
+  // use too much power, Teensy at least completes USB enumeration, which
+  // makes isolating the power issue easier.
+  delay(1500);
+  usbHost.begin();
+
   // initialize the digital pin as an output.
   pinMode(13, OUTPUT);
   pinMode(switch1, INPUT);
@@ -81,6 +91,8 @@ void setup() {
   MIDI2.turnThruOff();
   MIDI3.begin(MIDI_CHANNEL_OMNI);
   MIDI3.turnThruOff();
+
+  
 
   SPI.setMOSI(SDCARD_MOSI_PIN);
   SPI.setSCK(SDCARD_SCK_PIN);
@@ -113,8 +125,13 @@ void loop() {
   digitalWrite(13, LOW);   // set the LED off
   delay(1000);             // wait for a second
 
+  usbHost.Task();
+
+  USBMIDI.sendProgramChange(1, 1);
+
   MIDI1.read();
 
+  
   if (MIDI2.read()) {
     MIDI1.send(MIDI2.getType(),
                MIDI2.getData1(),
