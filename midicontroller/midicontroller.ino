@@ -252,12 +252,20 @@ void ExecuteSwitchLogic(int switchNo)
     {
       int pc = pcEvent["PC"];
       int channel = pcEvent["Channel"];
+      bool usbEvent = pcEvent["USB"];
       // Serial.print("PC: ");
       // Serial.println(pc);
       // Serial.print("Channel: ");
       // Serial.println(channel);
 
-      MIDI1.sendProgramChange(pc - 1, channel);
+      if (usbEvent)
+      {
+        USBMIDI.sendProgramChange(pc - 1, channel);
+      }
+      else
+      {
+        MIDI1.sendProgramChange(pc - 1, channel);
+      }
     }
   }
 
@@ -314,6 +322,7 @@ void ExecuteSwitchLogic(int switchNo)
       }
 
       int ccChannel = cc["Channel"];
+      bool usbEvent = cc["USB"];
       // Serial.print("CC Number: ");
       // Serial.println(ccNumber);
       // Serial.print("CC Value: ");
@@ -321,7 +330,14 @@ void ExecuteSwitchLogic(int switchNo)
       // Serial.print("CC Channel: ");
       // Serial.println(ccChannel);
 
-      MIDI1.sendControlChange(ccNumber, ccValue, ccChannel);
+      if (usbEvent)
+      {
+        USBMIDI.sendControlChange(ccNumber, ccValue, ccChannel);
+      }
+      else
+      {
+        MIDI1.sendControlChange(ccNumber, ccValue, ccChannel);
+      }
     }
   }
 }
@@ -365,12 +381,20 @@ void ChangePreset()
     {
       int pc = pcEvent["PC"];
       int channel = pcEvent["Channel"];
+      bool usbEvent = pcEvent["USB"];
       // Serial.print("PC: ");
       // Serial.println(pc);
       // Serial.print("Channel: ");
       // Serial.println(channel);
 
-      MIDI1.sendProgramChange(pc - 1, channel);
+      if (usbEvent)
+      {
+        USBMIDI.sendProgramChange(pc - 1, channel);
+      }
+      else
+      {
+        MIDI1.sendProgramChange(pc - 1, channel);
+      }
     }
   }
 
@@ -381,6 +405,8 @@ void ChangePreset()
       int ccNumber = ccEvent["CC"];
       int ccValue = ccEvent["Value"];
       int ccChannel = ccEvent["Channel"];
+      bool usbEvent = ccEvent["USB"];
+
       // Serial.print("CC Number: ");
       // Serial.println(ccNumber);
       // Serial.print("CC Value: ");
@@ -388,7 +414,14 @@ void ChangePreset()
       // Serial.print("CC Channel: ");
       // Serial.println(ccChannel);
 
-      MIDI1.sendControlChange(ccNumber, ccValue, ccChannel);
+      if (usbEvent)
+      {
+        USBMIDI.sendControlChange(ccNumber, ccValue, ccChannel);
+      }
+      else
+      {
+        MIDI1.sendControlChange(ccNumber, ccValue, ccChannel);
+      }
     }
   }
 

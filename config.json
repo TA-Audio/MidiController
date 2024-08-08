@@ -53,7 +53,8 @@
         "PC": [
             {
                 "PC": 2,
-                "Channel": 11
+                "Channel": 11,
+                "USB": true
             }
         ]
     }
