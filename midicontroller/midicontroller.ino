@@ -42,6 +42,15 @@ MIDI_CREATE_INSTANCE(HardwareSerial, Serial3, MIDI3);
 USBHost usbHost;
 MIDIDevice USBMIDI(usbHost);
 
+void ShowError(const char *errorMessageLine1, const char *errorMessageLine2)
+{
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(errorMessageLine1);
+  lcd.setCursor(0, 1);
+  lcd.print(errorMessageLine2);
+}
+
 void SetPresetDisplayInfo()
 {
   lcd.clear();
@@ -550,13 +559,14 @@ void setup()
   MIDI3.begin(MIDI_CHANNEL_OMNI);
   MIDI3.turnThruOff();
 
-  // if (!SD.begin(BUILTIN_SDCARD)) {
-  //   DEBUGS("\nSD init fail!");
-  //   while (true)
-  //     ;
-  // }
+  if (!SD.begin(BUILTIN_SDCARD))
+  {
+    ShowError("SD Card Error", "Is the card inserted and fat32?");
+    while (true)
+      ;
+  }
 
-  //  GetPresets();
+  GetPresets();
 
   // delay(500);
 
