@@ -377,7 +377,20 @@ void ChangePreset()
     ChangePreset();
   }
 
-  // char *fileName = presetList[currentPreset + 1];
+  char *fileName = presetList[currentPreset + 1];
+
+  // Serial.println(fileName);
+
+  if (!file.open(fileName, O_READ))
+  {
+    ShowError("SD Error", "");
+  }
+
+  DeserializationError error = deserializeJson(doc, file);
+  if (error)
+  {
+    ShowError(error.c_str(), "");
+  }
 
   preset = doc;
 
@@ -451,7 +464,7 @@ void BootLCD()
   lcd.print("v0.1.0");          // print message the fourth row
 
   // Change to use millis to setup can continue whilst lcb boot seq is shown
-  delay(4000);
+  delay(2000);
 }
 
 void GetPresets()
@@ -481,11 +494,7 @@ void GetPresets()
 
   if (dir.getError())
   {
-    // Serial.println("openNext failed");
-  }
-  else
-  {
-    // Serial.println("Done!");
+    ShowError("Error opening SD", "");
   }
 
   // Sort presetList numerically
@@ -591,11 +600,6 @@ void loop()
 
   currentMillis = millis();
 
-  digitalWrite(13, HIGH); // set the LED on
-  delay(1000);            // wait for a second
-  digitalWrite(13, LOW);  // set the LED off
-  delay(1000);            // wait for a second
-
   usbHost.Task();
 
   // USBMIDI.sendProgramChange(1, 1);
@@ -619,6 +623,7 @@ void loop()
   }
 
   pollButtons();
+  delay(25);
   if (!hasLoaded && currentMillis - startMillis >= period)
   {
     hasLoaded = true;
