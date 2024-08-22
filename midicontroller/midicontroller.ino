@@ -623,7 +623,6 @@ void loop()
   }
 
   pollButtons();
-  delay(25);
   if (!hasLoaded && currentMillis - startMillis >= period)
   {
     hasLoaded = true;
