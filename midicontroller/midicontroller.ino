@@ -180,6 +180,7 @@ void ExecuteSwitchLogic(int switchNo)
   }
 
   JsonArray switchPC = switchLogic["PC"];
+  JsonObject fileInfo = switchLogic["FileInfo"];
 
   const char *tempText = switchLogic["Name"].as<const char *>();
   char text[50];
