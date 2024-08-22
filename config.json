@@ -17,6 +17,7 @@
     },
     "Switch1": {
         "Name": "JAXDF",
+        "Toggle": true,
         "CC": [
             {
                 "CC": 1,
@@ -33,6 +34,7 @@
     },
     "Switch2": {
         "Name": "QECUN",
+        "Toggle": false,
         "CC": [
             {
                 "CC": 3,
@@ -50,10 +52,12 @@
     "Switch3": {
         "Name": "GLAKX",
         "CC": null,
+        "Toggle": false,
         "PC": [
             {
                 "PC": 2,
-                "Channel": 11
+                "Channel": 11,
+                "USB": true
             }
         ]
     }
