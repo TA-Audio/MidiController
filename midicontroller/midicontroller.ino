@@ -160,19 +160,23 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
   }
 }
 
-void midiSilence()
-// Turn everything off on every channel.
-// Some midi files are badly behaved and leave notes hanging, so between songs turn
-// off all the notes and sound
-{
-  midi_event ev;
+void MidiFileStop() {
+  JsonArray stopCC = preset["FileInfo"]["StopCC"];
 
-  for (ev.track = 0; ev.track < 120; ev.track++) {
-    ev.size = 0;
-    ev.data[ev.size++] = 0xb0;
-    ev.data[ev.size++] = ev.track;
-    ev.data[ev.size++] = 0;
-    midiFileCallback(&ev);
+  if (!stopCC.isNull()) {
+    for (JsonVariant ccEvent : stopCC) {
+      int ccNumber = ccEvent["CC"];
+      int ccValue = ccEvent["Value"];
+      int ccChannel = ccEvent["Channel"];
+      bool usbEvent = ccEvent["USB"];
+
+
+      if (usbEvent) {
+        USBMIDI.sendControlChange(ccNumber, ccValue, ccChannel);
+      } else {
+        MIDI1.sendControlChange(ccNumber, ccValue, ccChannel);
+      }
+    }
   }
 }
 
@@ -642,7 +646,7 @@ void loop() {
   } else {
     if (stoppingMidiFile == true) {
       SMF.close();
-      midiSilence();
+      MidiFileStop();
       stoppingMidiFile = false;
       playingMidiFile = false;
     }

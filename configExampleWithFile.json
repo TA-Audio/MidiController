@@ -1,35 +1,42 @@
 {
     "Switch1": {
-        "PC": null,
-        "Name": "",
-        "Toggle": false,
-        "CC": null
+      "PC": null,
+      "Name": "",
+      "Toggle": false,
+      "CC": null
     },
     "Switch3": {
-        "PC": null,
-        "Name": "",
-        "Toggle": false,
-        "CC": null
+      "PC": null,
+      "Name": "",
+      "Toggle": false,
+      "CC": null
     },
     "Name": "Unsustainable",
     "FileInfo": {
-        "FileName": "unsustainable.mid",
-        "BPM": 135,
-        "Channel": 1
+      "FileName": "unsuskemper.mid",
+      "BPM": 135,
+      "Channel": 11,
+      "StopCC": [
+        {
+          "CC": 4,
+          "Value": 0,
+          "Channel": 11
+        }
+      ]
     },
     "OnLoad": {
-        "CC": null,
-        "PC": [
-            {
-                "Channel": 11,
-                "PC": 98
-            }
-        ]
+      "CC": null,
+      "PC": [
+        {
+          "Channel": 11,
+          "PC": 98
+        }
+      ]
     },
     "Switch2": {
-        "PC": null,
-        "Name": "",
-        "Toggle": false,
-        "CC": null
+      "PC": null,
+      "Name": "",
+      "Toggle": false,
+      "CC": null
     }
-}
+  }
