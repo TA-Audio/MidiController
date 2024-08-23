@@ -1,0 +1,35 @@
+{
+    "Switch1": {
+        "PC": null,
+        "Name": "",
+        "Toggle": false,
+        "CC": null
+    },
+    "Switch3": {
+        "PC": null,
+        "Name": "",
+        "Toggle": false,
+        "CC": null
+    },
+    "Name": "Unsustainable",
+    "FileInfo": {
+        "FileName": "unsustainable.mid",
+        "BPM": 135,
+        "Channel": 1
+    },
+    "OnLoad": {
+        "CC": null,
+        "PC": [
+            {
+                "Channel": 11,
+                "PC": 98
+            }
+        ]
+    },
+    "Switch2": {
+        "PC": null,
+        "Name": "",
+        "Toggle": false,
+        "CC": null
+    }
+}
