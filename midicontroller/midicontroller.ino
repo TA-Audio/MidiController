@@ -40,6 +40,8 @@ bool playingMidiFile = false;
 bool stoppingMidiFile = false;
 int pcModePCValue = 0;
 bool pcModeOn = false;
+unsigned long longHoldStartMillis;
+
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI1);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, MIDI2);
@@ -59,36 +61,36 @@ void ShowError(const char *errorMessageLine1, const char *errorMessageLine2) {
 void SetPresetDisplayInfo() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print(preset["Name"].as<const char *>());  // print message at the second row
-
   const char *sw1;
   const char *sw2;
   const char *sw3;
 
-  JsonObject fileInfo = preset["FileInfo"];
-  if (!fileInfo.isNull()) {
-
-    if (playingMidiFile) {
-      sw1 = "Stop";
-    } else {
-      sw1 = "Play";
-    }
-
-  } else {
-    sw1 = preset["Switch1"]["Name"].as<const char *>();
-  }
-
-  JsonObject pcMode = preset["PCMode"];
-  if (!pcMode.isNull() && preset["PCMode"]["Enabled"].as<bool>()) {
-    pcModeOn = true;
+  if (pcModeOn) {
+    lcd.print("Prog Change Mode");
+    sw1 = "";
     sw2 = "Down";
     sw3 = "Up";
+    lcd.setCursor(0, 1);
+    lcd.print("Current PC: ");
+    lcd.print(pcModePCValue);
   } else {
+    lcd.print(preset["Name"].as<const char *>());  // print message at the second row
+
+    JsonObject fileInfo = preset["FileInfo"];
+    if (!fileInfo.isNull()) {
+
+      if (playingMidiFile) {
+        sw1 = "Stop";
+      } else {
+        sw1 = "Play";
+      }
+
+    } else {
+      sw1 = preset["Switch1"]["Name"].as<const char *>();
+    }
     sw2 = preset["Switch2"]["Name"].as<const char *>();
     sw3 = preset["Switch3"]["Name"].as<const char *>();
   }
-
-
 
 
   int sw1Length = strlen(sw1);
@@ -143,11 +145,7 @@ void SetPresetDisplayInfo() {
   }
   lcd.print(sw3);
 
-  if (pcModeOn) {
-    lcd.setCursor(0, 1);  // move cursor to the second row
-    lcd.print("Current PC: ");
-    lcd.print(pcModePCValue);
-  }
+
 
   // Free allocated memory for indicators
   delete[] sw1Indicator;
@@ -156,8 +154,19 @@ void SetPresetDisplayInfo() {
 }
 
 static void switchHandler(uint8_t btnId, uint8_t btnState) {
-  if (btnState == BTN_PRESSED && hasLoaded == true) {
 
+  if (btnState == BTN_PRESSED && (btnId == 4 || btnId == 5) && millis() > (longHoldStartMillis + 3000) && hasLoaded == true) {
+    if (pcModeOn) {
+      pcModeOn = false;
+    } else {
+      pcModeOn = true;
+    }
+    SetPresetDisplayInfo();
+
+    return;
+  }
+
+  if (btnState == BTN_PRESSED && hasLoaded == true) {
     if (btnId == 1 || btnId == 2 || btnId == 3) {
       ExecuteSwitchLogic(btnId);
     } else if (btnId == 4) {
@@ -176,6 +185,10 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
 
       ChangePreset();
     }
+  }
+
+  if (btnState == BTN_OPEN) {
+    longHoldStartMillis = millis();
   }
 }
 
@@ -249,8 +262,8 @@ void PlayStopMidiFile(JsonObject fileInfo) {
 
 void PCModeEvent(int switchNo) {
 
-  bool usbEvent = preset["PCMode"]["USB"].as<bool>();
-  int channel = preset["PCMode"]["Channel"].as<int>();
+  // bool usbEvent = preset["PCMode"]["USB"].as<bool>();
+  // int channel = preset["PCMode"]["Channel"].as<int>();
 
 
   if (switchNo == 2) {
@@ -262,11 +275,11 @@ void PCModeEvent(int switchNo) {
     pcModePCValue++;
   }
 
-  if (usbEvent) {
-    USBMIDI.sendProgramChange(pcModePCValue, channel);
-  } else {
-    MIDI1.sendProgramChange(pcModePCValue, channel);
-  }
+  // if (usbEvent) {
+  USBMIDI.sendProgramChange(pcModePCValue, 1);
+  // } else {
+  //   MIDI1.sendProgramChange(pcModePCValue, channel);
+  // }
 
   SetPresetDisplayInfo();
 }
@@ -290,15 +303,13 @@ void ExecuteSwitchLogic(int switchNo) {
 
   JsonArray switchPC = switchLogic["PC"];
   JsonObject fileInfo = preset["FileInfo"];
-  JsonObject pcMode = preset["PCMode"];
-  pcModeOn = false;
+
 
   if (!fileInfo.isNull() && switchNo == 1) {
     PlayStopMidiFile(fileInfo);
   } else {
 
-    if (!pcMode.isNull() && preset["PCMode"]["Enabled"].as<bool>()) {
-      pcModeOn = true;
+    if (pcModeOn) {
       PCModeEvent(switchNo);
 
     } else {
@@ -431,13 +442,14 @@ void ExecuteSwitchLogic(int switchNo) {
 }
 
 void ChangePreset() {
+
+  if (pcModeOn) {
+    return;
+  }
+
   if (resetPresetDisplay) {
     resetPresetDisplay = false;
   }
-
-  pcModeOn = false;
-  pcModePCValue = 0;
-
 
   if (currentPreset < 0) {
     currentPreset = 0;
