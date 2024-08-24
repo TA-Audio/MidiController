@@ -384,6 +384,8 @@ void ChangePreset() {
     resetPresetDisplay = false;
   }
 
+
+
   if (currentPreset < 0) {
     currentPreset = 0;
   }
@@ -403,7 +405,8 @@ void ChangePreset() {
     ChangePreset();
   }
 
-  char *fileName = presetList[currentPreset + 1];
+
+  char *fileName = presetList[currentPreset];
 
   if (!file.open(fileName, O_READ)) {
     ShowError("SD Error", "");
@@ -474,20 +477,25 @@ void GetPresets() {
   // Open root directory
   dir.open("/");
 
-  // create an array for each file name
-  // filenames = new String[dir.count()];
+
 
   while (file.openNext(&dir, O_RDONLY)) {
 
     int max_characters = 25;      // guess the needed characters
     char f_name[max_characters];  // the filename variable you want
     file.getName(f_name, max_characters);
-    // Serial.println(f_name);
 
-    strncpy(presetList[currentIndex], f_name, maxStringLength);
-    // strncpy(tempPresets[presetCount], f_name, maxStringLength);
+    // Check if the file has a ".json" extension
+    const char *extension = ".json";
+    int nameLength = strlen(f_name);
+    int extensionLength = strlen(extension);
 
-    currentIndex++;  // Increment the list length
+    // Check if the file ends with ".json"
+    if (nameLength >= extensionLength && strcmp(f_name + nameLength - extensionLength, extension) == 0) {
+      // If it ends with ".json", copy the filename to presetList
+      strncpy(presetList[currentIndex], f_name, maxStringLength);
+      currentIndex++;  // Increment the list length
+    }
 
     file.close();
   }
