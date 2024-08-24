@@ -38,6 +38,8 @@ MD_MIDIFile SMF;
 int midiFileChannel;
 bool playingMidiFile = false;
 bool stoppingMidiFile = false;
+int pcModePCValue = 0;
+bool pcModeOn = false;
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI1);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, MIDI2);
@@ -60,6 +62,8 @@ void SetPresetDisplayInfo() {
   lcd.print(preset["Name"].as<const char *>());  // print message at the second row
 
   const char *sw1;
+  const char *sw2;
+  const char *sw3;
 
   JsonObject fileInfo = preset["FileInfo"];
   if (!fileInfo.isNull()) {
@@ -74,9 +78,18 @@ void SetPresetDisplayInfo() {
     sw1 = preset["Switch1"]["Name"].as<const char *>();
   }
 
+  JsonObject pcMode = preset["PCMode"];
+  if (!pcMode.isNull() && preset["PCMode"]["Enabled"].as<bool>()) {
+    pcModeOn = true;
+    sw2 = "Down";
+    sw3 = "Up";
+  } else {
+    sw2 = preset["Switch2"]["Name"].as<const char *>();
+    sw3 = preset["Switch3"]["Name"].as<const char *>();
+  }
 
-  const char *sw2 = preset["Switch2"]["Name"].as<const char *>();
-  const char *sw3 = preset["Switch3"]["Name"].as<const char *>();
+
+
 
   int sw1Length = strlen(sw1);
   int sw2Length = strlen(sw2);
@@ -129,6 +142,12 @@ void SetPresetDisplayInfo() {
     lcd.print(" ");
   }
   lcd.print(sw3);
+
+  if (pcModeOn) {
+    lcd.setCursor(0, 1);  // move cursor to the second row
+    lcd.print("Current PC: ");
+    lcd.print(pcModePCValue);
+  }
 
   // Free allocated memory for indicators
   delete[] sw1Indicator;
@@ -228,6 +247,30 @@ void PlayStopMidiFile(JsonObject fileInfo) {
   }
 }
 
+void PCModeEvent(int switchNo) {
+
+  bool usbEvent = preset["PCMode"]["USB"].as<bool>();
+  int channel = preset["PCMode"]["Channel"].as<int>();
+
+
+  if (switchNo == 2) {
+    if (pcModePCValue >= 1) {
+      pcModePCValue--;
+    }
+
+  } else {
+    pcModePCValue++;
+  }
+
+  if (usbEvent) {
+    USBMIDI.sendProgramChange(pcModePCValue, channel);
+  } else {
+    MIDI1.sendProgramChange(pcModePCValue, channel);
+  }
+
+  SetPresetDisplayInfo();
+}
+
 void ExecuteSwitchLogic(int switchNo) {
 
   JsonObject switchLogic;
@@ -247,132 +290,140 @@ void ExecuteSwitchLogic(int switchNo) {
 
   JsonArray switchPC = switchLogic["PC"];
   JsonObject fileInfo = preset["FileInfo"];
-
+  JsonObject pcMode = preset["PCMode"];
+  pcModeOn = false;
 
   if (!fileInfo.isNull() && switchNo == 1) {
     PlayStopMidiFile(fileInfo);
   } else {
 
-    const char *tempText = switchLogic["Name"].as<const char *>();
-    char text[50];
-    bool toggle = switchLogic["Toggle"].as<bool>();
+    if (!pcMode.isNull() && preset["PCMode"]["Enabled"].as<bool>()) {
+      pcModeOn = true;
+      PCModeEvent(switchNo);
 
-    const char *onText = " On!";
-    const char *offText = " Off!";
-
-    if (toggle) {
-      switch (switchNo) {
-        case 1:
-          if (!switchOneToggled) {
-            strcpy(text, tempText);
-            strcat(text, onText);
-          } else {
-            strcpy(text, tempText);
-            strcat(text, offText);
-          }
-          break;
-        case 2:
-          if (!switchTwoToggled) {
-            strcpy(text, tempText);
-            strcat(text, onText);
-          } else {
-            strcpy(text, tempText);
-            strcat(text, offText);
-          }
-          break;
-        case 3:
-          if (!switchThreeToggled) {
-            strcpy(text, tempText);
-            strcat(text, onText);
-          } else {
-            strcpy(text, tempText);
-            strcat(text, offText);
-          }
-          break;
-      }
     } else {
-      strcpy(text, tempText);
-    }
 
-    int textLength = strlen(text);
+      const char *tempText = switchLogic["Name"].as<const char *>();
+      char text[50];
+      bool toggle = switchLogic["Toggle"].as<bool>();
 
-    if (textLength > 1) {
-      lcd.clear();
-      lcd.setCursor(0, 1);
-      int padding = (20 - textLength) / 2;
+      const char *onText = " On!";
+      const char *offText = " Off!";
 
-      // Print leading spaces for centering
-      for (int i = 0; i < padding; i++) {
-        lcd.print(" ");
-      }
-
-      // Print the text
-      lcd.print(text);
-      startMillis = millis();
-      resetPresetDisplay = true;
-    }
-
-    if (!switchPC.isNull()) {
-      for (JsonVariant pcEvent : switchPC) {
-        int pc = pcEvent["PC"];
-        int channel = pcEvent["Channel"];
-        bool usbEvent = pcEvent["USB"];
-
-        if (usbEvent) {
-          USBMIDI.sendProgramChange(pc - 1, channel);
-        } else {
-          MIDI1.sendProgramChange(pc - 1, channel);
-        }
-      }
-    }
-
-    JsonArray ccArray = switchLogic["CC"];
-
-    if (!ccArray.isNull()) {
-      for (JsonVariant cc : ccArray) {
-        int ccNumber = cc["CC"];
-        int ccValue = cc["Value"];
-
+      if (toggle) {
         switch (switchNo) {
           case 1:
-            if (toggle && switchOneToggled) {
-              ccValue = 0;
-              switchOneToggled = false;
-            } else if (toggle && !switchOneToggled) {
-              ccValue = 127;
-              switchOneToggled = true;
+            if (!switchOneToggled) {
+              strcpy(text, tempText);
+              strcat(text, onText);
+            } else {
+              strcpy(text, tempText);
+              strcat(text, offText);
             }
-
             break;
           case 2:
-            if (toggle && switchTwoToggled) {
-              ccValue = 0;
-              switchTwoToggled = false;
-            } else if (toggle && !switchTwoToggled) {
-              ccValue = 127;
-              switchTwoToggled = true;
+            if (!switchTwoToggled) {
+              strcpy(text, tempText);
+              strcat(text, onText);
+            } else {
+              strcpy(text, tempText);
+              strcat(text, offText);
             }
-
             break;
           case 3:
-            if (toggle && switchThreeToggled) {
-              ccValue = 0;
-              switchThreeToggled = false;
-            } else if (toggle && !switchThreeToggled) {
-              ccValue = 127;
-              switchThreeToggled = true;
+            if (!switchThreeToggled) {
+              strcpy(text, tempText);
+              strcat(text, onText);
+            } else {
+              strcpy(text, tempText);
+              strcat(text, offText);
             }
-
             break;
         }
+      } else {
+        strcpy(text, tempText);
+      }
 
-        int ccChannel = cc["Channel"];
-        bool usbEvent = cc["USB"];
+      int textLength = strlen(text);
 
-        if (usbEvent) {
-          USBMIDI.sendControlChange(ccNumber, ccValue, ccChannel);
-        } else {
-          MIDI1.sendControlChange(ccNumber, ccValue, ccChannel);
+      if (textLength > 1) {
+        lcd.clear();
+        lcd.setCursor(0, 1);
+        int padding = (20 - textLength) / 2;
+
+        // Print leading spaces for centering
+        for (int i = 0; i < padding; i++) {
+          lcd.print(" ");
+        }
+
+        // Print the text
+        lcd.print(text);
+        startMillis = millis();
+        resetPresetDisplay = true;
+      }
+
+      if (!switchPC.isNull()) {
+        for (JsonVariant pcEvent : switchPC) {
+          int pc = pcEvent["PC"];
+          int channel = pcEvent["Channel"];
+          bool usbEvent = pcEvent["USB"];
+
+          if (usbEvent) {
+            USBMIDI.sendProgramChange(pc - 1, channel);
+          } else {
+            MIDI1.sendProgramChange(pc - 1, channel);
+          }
+        }
+      }
+
+      JsonArray ccArray = switchLogic["CC"];
+
+      if (!ccArray.isNull()) {
+        for (JsonVariant cc : ccArray) {
+          int ccNumber = cc["CC"];
+          int ccValue = cc["Value"];
+
+          switch (switchNo) {
+            case 1:
+              if (toggle && switchOneToggled) {
+                ccValue = 0;
+                switchOneToggled = false;
+              } else if (toggle && !switchOneToggled) {
+                ccValue = 127;
+                switchOneToggled = true;
+              }
+
+              break;
+            case 2:
+              if (toggle && switchTwoToggled) {
+                ccValue = 0;
+                switchTwoToggled = false;
+              } else if (toggle && !switchTwoToggled) {
+                ccValue = 127;
+                switchTwoToggled = true;
+              }
+
+              break;
+            case 3:
+              if (toggle && switchThreeToggled) {
+                ccValue = 0;
+                switchThreeToggled = false;
+              } else if (toggle && !switchThreeToggled) {
+                ccValue = 127;
+                switchThreeToggled = true;
+              }
+
+              break;
+          }
+
+          int ccChannel = cc["Channel"];
+          bool usbEvent = cc["USB"];
+
+          if (usbEvent) {
+            USBMIDI.sendControlChange(ccNumber, ccValue, ccChannel);
+          } else {
+            MIDI1.sendControlChange(ccNumber, ccValue, ccChannel);
+          }
         }
       }
     }
@@ -384,6 +435,8 @@ void ChangePreset() {
     resetPresetDisplay = false;
   }
 
+  pcModeOn = false;
+  pcModePCValue = 0;
 
 
   if (currentPreset < 0) {

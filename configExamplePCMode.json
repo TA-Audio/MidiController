@@ -1,0 +1,27 @@
+{
+    "Switch1": {
+        "PC": null,
+        "Name": "",
+        "Toggle": false,
+        "CC": null
+    },
+    "Switch3": {
+        "PC": null,
+        "Name": "",
+        "Toggle": false,
+        "CC": null
+    },
+    "Name": "PC Mode",
+    "OnLoad": null,
+    "PCMode": {
+        "Enabled": true,
+        "USB": true,
+        "Channel": 1
+    },
+    "Switch2": {
+        "PC": null,
+        "Name": "",
+        "Toggle": false,
+        "CC": null
+    }
+}
