@@ -30,7 +30,7 @@ const int maxStringLength = 25;  // Maximum length of each word
 char presetList[maxListSize][maxStringLength];
 DynamicJsonDocument doc(1024);
 int address = 0;
-int readValue = 0;
+int pcAddress = 1000;
 int currentIndex = 0;
 FsFile dir;
 FsFile file;
@@ -161,7 +161,10 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
     } else {
       pcModeOn = true;
     }
+
+    USBMIDI.sendProgramChange(pcModePCValue, 1);
     SetPresetDisplayInfo();
+
 
     return;
   }
@@ -280,6 +283,8 @@ void PCModeEvent(int switchNo) {
   // } else {
   //   MIDI1.sendProgramChange(pcModePCValue, channel);
   // }
+
+  EEPROM.put(pcAddress, pcModePCValue);
 
   SetPresetDisplayInfo();
 }
@@ -658,7 +663,15 @@ void setup() {
 
   // delay(500);
 
-  currentPreset = EEPROM.get(address, readValue);
+  EEPROM.get(address, currentPreset);
+  EEPROM.get(pcAddress, pcModePCValue);
+
+  if (pcModePCValue < 0 || pcModePCValue > 127) {
+    pcModePCValue = 0;
+    EEPROM.put(pcAddress, pcModePCValue);
+  }
+
+  Serial.println(currentPreset);
 
   startMillis = millis();
 }
@@ -722,6 +735,7 @@ void loop() {
       MidiFileStop();
       stoppingMidiFile = false;
       playingMidiFile = false;
+      SetPresetDisplayInfo();
     }
   }
 }
