@@ -39,16 +39,16 @@ jobs:
           arduino-cli lib install "MD_MIDIFile"
 
       - name: Patch MD_MIDIFile for SdFat (Teensy)
-        # The Library Manager version defaults to USE_SDFAT=0 (Arduino SD File type).
-        # Teensy's SD library is SdFat-based; set USE_SDFAT=1 to use SdFat types.
-        # The define lives in MD_MIDIFile.h itself (not a separate _config.h).
+        # MD_MIDIFile v2.6.0 unconditionally uses 'typedef File SDDIR/SDFILE'.
+        # Teensy's SD library is SdFat-based and doesn't expose the Arduino 'File' type,
+        # but 'SdFile' is available. Replace the typedef so the library compiles on Teensy.
         run: |
           CONFIG="$HOME/Arduino/libraries/MD_MIDIFile/src/MD_MIDIFile.h"
-          echo "=== USE_SDFAT before patch ==="
-          grep -n "USE_SDFAT" "$CONFIG"
-          sed -i 's/#define USE_SDFAT[[:space:]]*0/#define USE_SDFAT 1/g' "$CONFIG"
-          echo "=== USE_SDFAT after patch ==="
-          grep -n "USE_SDFAT" "$CONFIG"
+          echo "=== typedef before patch ==="
+          grep -n "typedef File SD" "$CONFIG" || echo "(no match yet)"
+          sed -i 's/typedef File SDDIR;/typedef SdFile SDDIR;/; s/typedef File SDFILE;/typedef SdFile SDFILE;/' "$CONFIG"
+          echo "=== typedef after patch ==="
+          grep -n "typedef.*SD" "$CONFIG" || echo "(no match)"
 
       - name: Install debounce library from git
         # kimballa/button-debounce: provides debounce.h with Button(id, callback),
