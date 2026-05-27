@@ -36,16 +36,15 @@ jobs:
           arduino-cli lib install "ArduinoJson@6.21.5"
           arduino-cli lib install "MIDI Library"
           arduino-cli lib install "LiquidCrystal I2C"
-          arduino-cli lib install "MD_MIDIFile"
-          # MD_MIDIFile defaults to USE_SDFAT=0 (standard Arduino File type), but the
-          # sketch uses the Teensy SdFat API. Patch the config to enable SdFat mode.
-          find ~/Arduino/libraries/MD_MIDIFile -name "MD_MIDIFile_config.h" \
-            -exec sed -i 's/#define USE_SDFAT 0/#define USE_SDFAT 1/' {} \;
 
-      - name: Install debounce library from source
+      - name: Install libraries from git
+        # MD_MIDIFile: installed from git (master) which natively uses SdFat
+        #   (SdFat *_sd, SdFile _fd, begin(SdFat*)) with no USE_SDFAT flag needed.
+        #   The Library Manager release uses an older API with USE_SDFAT conditionals.
         # kimballa/button-debounce: provides debounce.h with Button(id, callback),
-        # BTN_PRESSED/BTN_OPEN constants, and update(bool). Not in Arduino Library Manager.
+        #   BTN_PRESSED/BTN_OPEN constants, and update(bool). Not in Library Manager.
         run: |
+          arduino-cli lib install --git-url https://github.com/MajicDesigns/MD_MIDIFile.git
           arduino-cli lib install --git-url https://github.com/kimballa/button-debounce.git
 
       - name: Compile Teensy 4.1 Firmware
