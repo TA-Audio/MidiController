@@ -12,6 +12,7 @@
 static constexpr int switch1Pin = 2;
 static constexpr int switch2Pin = 3;
 static constexpr int switch3Pin = 4;
+static constexpr int switchCount = 3;
 static constexpr int nextPresetPin = 5;
 static constexpr int prevPresetPin = 6;
 static constexpr unsigned long initialLoadDelayMs = 1000;
@@ -26,9 +27,7 @@ static constexpr int midiValueMax = 127;
 static constexpr unsigned long eepromCommitDelayMs = 200;
 
 bool hasLoaded = false;
-bool switchOneToggled = false;
-bool switchTwoToggled = false;
-bool switchThreeToggled = false;
+bool switchToggled[switchCount] = {};
 unsigned long startMillis;
 unsigned long currentMillis;
 unsigned long switchDisplayStartMillis = 0;
@@ -41,7 +40,6 @@ DMAMEM char presetList[maxPresetListSize][maxPresetNameLength];
 DMAMEM StaticJsonDocument<4096> presetDoc;
 static constexpr int presetEepromAddress = 0;
 static constexpr int pcModeEepromAddress = 1000;
-int presetListCount = 0;
 FsFile rootDir;
 FsFile sdFile;
 MD_MIDIFile midiFilePlayer;
@@ -94,31 +92,6 @@ static inline int clampMidi(int value) {
   return value;
 }
 
-static inline bool isSwitchToggled(int switchNo) {
-  switch (switchNo) {
-    case 1:
-      return switchOneToggled;
-    case 2:
-      return switchTwoToggled;
-    default:
-      return switchThreeToggled;
-  }
-}
-
-static inline void setSwitchToggled(int switchNo, bool value) {
-  switch (switchNo) {
-    case 1:
-      switchOneToggled = value;
-      break;
-    case 2:
-      switchTwoToggled = value;
-      break;
-    default:
-      switchThreeToggled = value;
-      break;
-  }
-}
-
 static inline void sendProgramChange(int pcValue, int channel, bool usbEvent) {
   const int safePc = clampMidi(pcValue);
   if (usbEvent) {
@@ -129,11 +102,26 @@ static inline void sendProgramChange(int pcValue, int channel, bool usbEvent) {
 }
 
 static inline void sendControlChange(int ccNumber, int ccValue, int channel, bool usbEvent) {
+  const int safeCcNumber = clampMidi(ccNumber);
   const int safeCcValue = clampMidi(ccValue);
   if (usbEvent) {
-    usbMidiDevice.sendControlChange(ccNumber, safeCcValue, channel);
+    usbMidiDevice.sendControlChange(safeCcNumber, safeCcValue, channel);
   } else {
-    MIDI1.sendControlChange(ccNumber, safeCcValue, channel);
+    MIDI1.sendControlChange(safeCcNumber, safeCcValue, channel);
+  }
+}
+
+static void sendPcArray(JsonArray pcArray) {
+  if (pcArray.isNull()) return;
+  for (JsonVariant pcEvent : pcArray) {
+    sendProgramChange(pcEvent["PC"].as<int>() - 1, pcEvent["Channel"], pcEvent["USB"]);
+  }
+}
+
+static void sendCcArray(JsonArray ccArray) {
+  if (ccArray.isNull()) return;
+  for (JsonVariant ccEvent : ccArray) {
+    sendControlChange(ccEvent["CC"], ccEvent["Value"], ccEvent["Channel"], ccEvent["USB"]);
   }
 }
 
@@ -286,6 +274,9 @@ FLASHMEM static void displayCenteredLine(int row, const char *text) {
   for (int i = 0; i < safeLength; i++) {
     lcd.print(text[i]);
   }
+  for (int i = padding + safeLength; i < lcdColumnCount; i++) {
+    lcd.print(' ');
+  }
 }
 
 FLASHMEM static void showSwitchActionMessage(const char *text, const char *suffix) {
@@ -383,17 +374,17 @@ void setPresetDisplayInfo() {
   lcd.setCursor(0, 2);
 
   for (int i = 0; i < sw1CopyLength; i++) {
-    sw1Indicator[i] = (switchOneToggled) ? '*' : ' ';
+    sw1Indicator[i] = switchToggled[0] ? '*' : ' ';
   }
   sw1Indicator[sw1CopyLength] = '\0';
 
   for (int i = 0; i < sw2CopyLength; i++) {
-    sw2Indicator[i] = (switchTwoToggled) ? '*' : ' ';
+    sw2Indicator[i] = switchToggled[1] ? '*' : ' ';
   }
   sw2Indicator[sw2CopyLength] = '\0';
 
   for (int i = 0; i < sw3CopyLength; i++) {
-    sw3Indicator[i] = (switchThreeToggled) ? '*' : ' ';
+    sw3Indicator[i] = switchToggled[2] ? '*' : ' ';
   }
   sw3Indicator[sw3CopyLength] = '\0';
 
@@ -424,16 +415,19 @@ void setPresetDisplayInfo() {
 }
 
 static void switchHandler(uint8_t btnId, uint8_t btnState) {
-  if (btnState == BTN_OPEN) {
+  if (btnState == BTN_PRESSED) {
     longHoldStartMillis = currentMillis;
+    if (hasLoaded && btnId <= 3) {
+      executeSwitchLogic(btnId);
+    }
     return;
   }
 
+  // BTN_OPEN — handle nav buttons on release to support long-hold detection
   if (!hasLoaded) {
     return;
   }
 
-  // Long-hold toggle only applies to nav buttons
   if ((btnId == 4 || btnId == 5) && hasElapsed(longHoldStartMillis, longHoldToggleMs)) {
     pcModeOn = !pcModeOn;
     sendProgramChange(pcModeProgram, 1, true);
@@ -441,9 +435,7 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
     return;
   }
 
-  if (btnId <= 3) {
-    executeSwitchLogic(btnId);
-  } else if (btnId == 4) {
+  if (btnId == 4) {
     presetNavigationDirection = 1;
     if (currentPreset >= (presetCount - 1)) {
       return;
@@ -452,26 +444,16 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
     changePreset();
   } else if (btnId == 5) {
     presetNavigationDirection = -1;
-    if (currentPreset > 0) {
-      currentPreset--;
+    if (currentPreset <= 0) {
+      return;
     }
+    currentPreset--;
     changePreset();
   }
 }
 
 FLASHMEM void stopMidiFile() {
-  JsonArray stopCC = activePreset["FileInfo"]["StopCC"];
-
-  if (!stopCC.isNull()) {
-    for (JsonVariant ccEvent : stopCC) {
-      int ccNumber = ccEvent["CC"];
-      int ccValue = ccEvent["Value"];
-      int ccChannel = ccEvent["Channel"];
-      bool usbEvent = ccEvent["USB"];
-
-      sendControlChange(ccNumber, ccValue, ccChannel, usbEvent);
-    }
-  }
+  sendCcArray(activePreset["FileInfo"]["StopCC"]);
 }
 
 FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
@@ -550,18 +532,9 @@ void executeSwitchLogic(int switchNo) {
 
   const char *switchName = switchLogic["Name"].as<const char *>();
   bool toggle = switchLogic["Toggle"].as<bool>();
-  const bool wasToggled = isSwitchToggled(switchNo);
+  const bool wasToggled = switchToggled[switchNo - 1];
 
-  JsonArray switchPC = switchLogic["PC"];
-  if (!switchPC.isNull()) {
-    for (JsonVariant pcEvent : switchPC) {
-      int pc = pcEvent["PC"];
-      int channel = pcEvent["Channel"];
-      bool usbEvent = pcEvent["USB"];
-
-      sendProgramChange(pc - 1, channel, usbEvent);
-    }
-  }
+  sendPcArray(switchLogic["PC"]);
 
   JsonArray ccArray = switchLogic["CC"];
   if (!ccArray.isNull()) {
@@ -588,7 +561,7 @@ void executeSwitchLogic(int switchNo) {
     }
 
     if (useToggleValue) {
-      setSwitchToggled(switchNo, nextToggleState);
+      switchToggled[switchNo - 1] = nextToggleState;
     }
   }
 
@@ -622,9 +595,7 @@ FLASHMEM void changePreset() {
     stoppingMidiFile = true;
   }
 
-  switchOneToggled = false;
-  switchTwoToggled = false;
-  switchThreeToggled = false;
+  memset(switchToggled, 0, sizeof(switchToggled));
 
   // if saved currentPreset value is greater than the number of presets, reset to 0
   if (currentPreset >= presetCount) {
@@ -638,30 +609,8 @@ FLASHMEM void changePreset() {
 
   activePreset = presetDoc;
 
-  JsonArray onLoadPC = activePreset["OnLoad"]["PC"];
-  JsonArray onLoadCC = activePreset["OnLoad"]["CC"];
-
-
-  if (!onLoadPC.isNull()) {
-    for (JsonVariant pcEvent : onLoadPC) {
-      int pc = pcEvent["PC"];
-      int channel = pcEvent["Channel"];
-      bool usbEvent = pcEvent["USB"];
-
-      sendProgramChange(pc - 1, channel, usbEvent);
-    }
-  }
-
-  if (!onLoadCC.isNull()) {
-    for (JsonVariant ccEvent : onLoadCC) {
-      int ccNumber = ccEvent["CC"];
-      int ccValue = ccEvent["Value"];
-      int ccChannel = ccEvent["Channel"];
-      bool usbEvent = ccEvent["USB"];
-
-      sendControlChange(ccNumber, ccValue, ccChannel, usbEvent);
-    }
-  }
+  sendPcArray(activePreset["OnLoad"]["PC"]);
+  sendCcArray(activePreset["OnLoad"]["CC"]);
 
   setPresetDisplayInfo();
   queuePresetSave(currentPreset);
@@ -681,7 +630,7 @@ FLASHMEM void showBootScreen() {
 }
 
 FLASHMEM void loadPresetList() {
-  presetListCount = 0;
+  presetCount = 0;
   rootDir.open("/");
 
   while (sdFile.openNext(&rootDir, O_RDONLY)) {
@@ -693,13 +642,13 @@ FLASHMEM void loadPresetList() {
     const int extensionLength = strlen(extension);
 
     if (nameLength >= extensionLength && strcmp(fileName + nameLength - extensionLength, extension) == 0) {
-      if (presetListCount >= maxPresetListSize) {
+      if (presetCount >= maxPresetListSize) {
         sdFile.close();
         break;
       }
-      strncpy(presetList[presetListCount], fileName, maxPresetNameLength);
-      presetList[presetListCount][maxPresetNameLength - 1] = '\0';
-      presetListCount++;
+      strncpy(presetList[presetCount], fileName, maxPresetNameLength);
+      presetList[presetCount][maxPresetNameLength - 1] = '\0';
+      presetCount++;
     }
 
     sdFile.close();
@@ -712,11 +661,10 @@ FLASHMEM void loadPresetList() {
   rootDir.close();
 
   // Sort presetList numerically
-  if (presetListCount > 1) {
-    qsort(presetList, presetListCount, sizeof(presetList[0]), comparePresetNames);
+  if (presetCount > 1) {
+    qsort(presetList, presetCount, sizeof(presetList[0]), comparePresetNames);
   }
 
-  presetCount = presetListCount;
   prefetchedPresetIndex = -1;
   prefetchTargetIndex = -1;
   prefetchRequested = false;
@@ -760,8 +708,6 @@ FLASHMEM void setup() {
   delay(1500);
   usbHost.begin();
 
-  // initialize the digital pin as an output.
-  pinMode(13, OUTPUT);
   pinMode(switch1Pin, INPUT);
   pinMode(switch2Pin, INPUT);
   pinMode(switch3Pin, INPUT);
