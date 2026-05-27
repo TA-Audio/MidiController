@@ -53,7 +53,7 @@ if (-not (Get-Command arduino-cli -ErrorAction SilentlyContinue)) {
         Write-Error 'winget is not available. Please install arduino-cli manually: https://arduino.github.io/arduino-cli/installation/'
         exit 1
     }
-    winget install --id Arduino.ArduinoCLI --accept-source-agreements --accept-package-agreements
+    winget install --id ArduinoSA.CLI --accept-source-agreements --accept-package-agreements
     # Refresh PATH for current session
     $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
                 [System.Environment]::GetEnvironmentVariable('PATH', 'User')
@@ -69,8 +69,11 @@ Write-Host "  Found: $(arduino-cli version)"
 
 Write-Step 'Configuring arduino-cli...'
 arduino-cli config init --overwrite 2>$null
+$arduinoUserDir = Join-Path $env:TEMP 'ArduinoMidiController'
+arduino-cli config set directories.user $arduinoUserDir
 arduino-cli config set board_manager.additional_urls $boardManagerUrl
 arduino-cli config set library.enable_unsafe_install true
+Write-Host "  Arduino user directory set to $arduinoUserDir"
 Write-Host '  Board manager URL and unsafe install configured.'
 
 # ── 3. Install Teensy board package ─────────────────────────────────────────────
@@ -82,6 +85,14 @@ arduino-cli core install teensy:avr
 # ── 4. Install libraries ───────────────────────────────────────────────────────
 
 Write-Step 'Installing libraries...'
+
+# Ensure the Arduino libraries directory exists
+$libDir = Join-Path $arduinoUserDir 'libraries'
+if (-not (Test-Path $libDir)) {
+    New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+    Write-Host "  Created $libDir"
+}
+
 arduino-cli lib update-index
 arduino-cli lib install 'ArduinoJson@6.21.5'
 arduino-cli lib install 'MIDI Library'
@@ -94,16 +105,7 @@ Write-Host '  All libraries installed.'
 
 Write-Step 'Patching MD_MIDIFile for Teensy SdFat compatibility...'
 
-$arduinoLibDir = Join-Path $env:USERPROFILE 'Documents' 'Arduino' 'libraries' 'MD_MIDIFile' 'src'
-$mdHeader = Join-Path $arduinoLibDir 'MD_MIDIFile.h'
-
-if (-not (Test-Path $mdHeader)) {
-    # Fallback: arduino-cli may use a different library path
-    $cliConfigDir = (arduino-cli config dump --format json | ConvertFrom-Json).directories.user
-    if ($cliConfigDir) {
-        $mdHeader = Join-Path $cliConfigDir 'libraries' 'MD_MIDIFile' 'src' 'MD_MIDIFile.h'
-    }
-}
+$mdHeader = Join-Path $arduinoUserDir 'libraries' 'MD_MIDIFile' 'src' 'MD_MIDIFile.h'
 
 if (Test-Path $mdHeader) {
     $content = Get-Content $mdHeader -Raw
@@ -122,7 +124,23 @@ if (Test-Path $mdHeader) {
 # ── 6. Compile ──────────────────────────────────────────────────────────────────
 
 Write-Step 'Compiling firmware...'
-arduino-cli compile --fqbn $fqbn --warnings all $sketchPath
+$buildDir = Join-Path $env:TEMP 'ArduinoMidiController_build'
+# The Teensy post-build hook (teensy_post_compile) fails on Windows CLI with
+# "WaitForSingleObject: The handle is invalid." This is cosmetic — the actual
+# compilation and hex generation succeed. We capture output, filter that noise,
+# and verify success by checking the hex file was produced.
+$ErrorActionPreference = 'Continue'
+$compileOutput = arduino-cli compile --fqbn $fqbn --warnings all --build-path $buildDir $sketchPath 2>&1
+$ErrorActionPreference = 'Stop'
+$compileOutput | ForEach-Object {
+    $line = if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { $_ }
+    if ($line -notmatch 'WaitForSingleObject') { Write-Host $line }
+}
+$hexFile = Join-Path $buildDir 'midicontroller.ino.hex'
+if (-not (Test-Path $hexFile)) {
+    Write-Error 'Compile failed — no hex file produced.'
+    exit 1
+}
 
 Write-Host "`n✔ Build succeeded." -ForegroundColor Green
 
@@ -130,7 +148,35 @@ Write-Host "`n✔ Build succeeded." -ForegroundColor Green
 
 if ($Upload) {
     Write-Step 'Uploading firmware to Teensy 4.1...'
-    $uploadArgs = @('upload', '--fqbn', $fqbn)
+
+    # Auto-detect Teensy COM port if not specified
+    if (-not $Port) {
+        Write-Host '  Detecting Teensy serial port...'
+        $teensyPort = Get-CimInstance Win32_PnPEntity |
+            Where-Object { $_.Name -match 'USB Serial.*\(COM\d+\)' -and $_.Manufacturer -match 'PJRC|Teensy' } |
+            ForEach-Object { if ($_.Name -match '\((COM\d+)\)') { $Matches[1] } } |
+            Select-Object -First 1
+
+        if (-not $teensyPort) {
+            # Fallback: use arduino-cli board list to find a Teensy
+            $boardJson = arduino-cli board list --format json | ConvertFrom-Json
+            $teensyBoard = $boardJson | Where-Object {
+                $_.matching_boards | Where-Object { $_.fqbn -eq $fqbn }
+            } | Select-Object -First 1
+            if ($teensyBoard) {
+                $teensyPort = $teensyBoard.port.address
+            }
+        }
+
+        if ($teensyPort) {
+            Write-Host "  Found Teensy on $teensyPort" -ForegroundColor Green
+            $Port = $teensyPort
+        } else {
+            Write-Warning 'Could not auto-detect Teensy port. Letting arduino-cli attempt upload without -p flag.'
+        }
+    }
+
+    $uploadArgs = @('upload', '--fqbn', $fqbn, '--input-dir', $buildDir)
     if ($Port) {
         $uploadArgs += @('-p', $Port)
     }
