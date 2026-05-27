@@ -117,3 +117,92 @@ inline int adjustPcProgram(int currentProgram, bool decrement) {
   }
   return clampMidi(currentProgram);
 }
+
+// ── EEPROM validation ────────────────────────────────────────────────────────
+
+/// Validate a preset index read from EEPROM.  Returns 0 if out of range.
+inline int validateStoredPreset(int value, int maxPresets) {
+  if (value < 0 || value >= maxPresets) return 0;
+  return value;
+}
+
+/// Validate a PC program value read from EEPROM.  Returns 0 if out of MIDI range.
+inline int validateStoredPcProgram(int value) {
+  if (value < midiValueMin || value > midiValueMax) return 0;
+  return value;
+}
+
+// ── Toggle logic ─────────────────────────────────────────────────────────────
+
+/// Determine the CC value to send for a toggle switch.
+/// Returns 127 when turning on, 0 when turning off.
+inline int toggleCcValue(bool wasToggled) {
+  return wasToggled ? 0 : 127;
+}
+
+// ── Preset prefetch ──────────────────────────────────────────────────────────
+
+/// Compute the next preset index to prefetch based on navigation direction.
+/// Returns -1 if no valid prefetch candidate exists.
+inline int computePrefetchCandidate(int currentPreset, int presetCount,
+                                    int navigationDirection, int alreadyPrefetchedIndex) {
+  if (presetCount <= 1) return -1;
+
+  int candidate = currentPreset + navigationDirection;
+  if (candidate < 0 || candidate >= presetCount) {
+    candidate = currentPreset - navigationDirection;
+  }
+
+  if (candidate < 0 || candidate >= presetCount || candidate == currentPreset) {
+    return -1;
+  }
+
+  if (candidate == alreadyPrefetchedIndex) {
+    return -1;  // already prefetched
+  }
+
+  return candidate;
+}
+
+// ── Filename utilities ───────────────────────────────────────────────────────
+
+/// Check whether a filename ends with ".json" (case-sensitive).
+inline bool hasJsonExtension(const char *filename) {
+  if (filename == nullptr) return false;
+  const int nameLength = (int)strlen(filename);
+  const int extLength = 5;  // ".json"
+  if (nameLength < extLength) return false;
+  return strcmp(filename + nameLength - extLength, ".json") == 0;
+}
+
+// ── PC offset ────────────────────────────────────────────────────────────────
+
+/// Convert a 1-indexed program change value (from JSON) to the 0-indexed MIDI value.
+inline int pcJsonToMidi(int jsonPcValue) {
+  return clampMidi(jsonPcValue - 1);
+}
+
+// ── Switch message formatting ────────────────────────────────────────────────
+
+/// Format a switch action message into `outBuffer`.
+/// Returns true if the result is non-empty (should be displayed).
+inline bool formatSwitchActionMessage(const char *text, const char *suffix,
+                                      char *outBuffer, int bufSize) {
+  if (bufSize <= 0) return false;
+  const char *safeText = (text != nullptr) ? text : "";
+  if (suffix != nullptr && suffix[0] != '\0') {
+    snprintf(outBuffer, bufSize, "%s%s", safeText, suffix);
+  } else {
+    snprintf(outBuffer, bufSize, "%s", safeText);
+  }
+  return outBuffer[0] != '\0';
+}
+
+// ── Preset bounds clamping ───────────────────────────────────────────────────
+
+/// Clamp a preset index to valid range.  If out of bounds, returns 0.
+inline int clampPresetIndex(int index, int presetCount) {
+  if (presetCount <= 0) return 0;
+  if (index < 0 || index >= presetCount) return 0;
+  return index;
+}

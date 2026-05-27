@@ -81,7 +81,7 @@ static inline void sendControlChange(int ccNumber, int ccValue, int channel, boo
 static void sendPcArray(JsonArray pcArray) {
   if (pcArray.isNull()) return;
   for (JsonVariant pcEvent : pcArray) {
-    sendProgramChange(pcEvent["PC"].as<int>() - 1, pcEvent["Channel"], pcEvent["USB"]);
+    sendProgramChange(pcJsonToMidi(pcEvent["PC"].as<int>()), pcEvent["Channel"], pcEvent["USB"]);
   }
 }
 
@@ -183,28 +183,15 @@ bool applyPresetByIndex(int presetIndex) {
 }
 
 void queueDirectionalPresetPrefetch() {
-  if (presetCount <= 1) {
+  int candidateIndex = computePrefetchCandidate(currentPreset, presetCount,
+                                                  presetNavigationDirection, prefetchedPresetIndex);
+  if (candidateIndex < 0) {
     prefetchRequested = false;
     prefetchTargetIndex = -1;
-    prefetchedPresetIndex = -1;
-    prefetchedPresetDoc.clear();
-    return;
-  }
-
-  int candidateIndex = currentPreset + presetNavigationDirection;
-  if (candidateIndex < 0 || candidateIndex >= presetCount) {
-    candidateIndex = currentPreset - presetNavigationDirection;
-  }
-
-  if (candidateIndex < 0 || candidateIndex >= presetCount || candidateIndex == currentPreset) {
-    prefetchRequested = false;
-    prefetchTargetIndex = -1;
-    return;
-  }
-
-  if (prefetchedPresetIndex == candidateIndex) {
-    prefetchRequested = false;
-    prefetchTargetIndex = -1;
+    if (presetCount <= 1) {
+      prefetchedPresetIndex = -1;
+      prefetchedPresetDoc.clear();
+    }
     return;
   }
 
@@ -248,13 +235,7 @@ FLASHMEM static void displayCenteredLine(int row, const char *text) {
 
 FLASHMEM static void showSwitchActionMessage(const char *text, const char *suffix) {
   char lineBuffer[uiTextBufferLength];
-  if (suffix != nullptr && suffix[0] != '\0') {
-    snprintf(lineBuffer, sizeof(lineBuffer), "%s%s", text != nullptr ? text : "", suffix);
-  } else {
-    snprintf(lineBuffer, sizeof(lineBuffer), "%s", text != nullptr ? text : "");
-  }
-
-  if (lineBuffer[0] == '\0') {
+  if (!formatSwitchActionMessage(text, suffix, lineBuffer, sizeof(lineBuffer))) {
     return;
   }
 
@@ -492,7 +473,7 @@ void executeSwitchLogic(int switchNo) {
       int ccValue = cc["Value"];
 
       if (useToggleValue) {
-        ccValue = nextToggleState ? 127 : 0;
+        ccValue = toggleCcValue(wasToggled);
       }
 
       int ccChannel = cc["Channel"];
@@ -539,9 +520,7 @@ FLASHMEM void changePreset() {
   memset(switchToggled, 0, sizeof(switchToggled));
 
   // if saved currentPreset value is greater than the number of presets, reset to 0
-  if (currentPreset >= presetCount) {
-    currentPreset = 0;
-  }
+  currentPreset = clampPresetIndex(currentPreset, presetCount);
 
   if (!applyPresetByIndex(currentPreset)) {
     showError("Preset load error", "Check JSON / SD card");
@@ -578,11 +557,7 @@ FLASHMEM void loadPresetList() {
     char fileName[maxPresetNameLength];
     sdFile.getName(fileName, maxPresetNameLength);
 
-    const char *extension = ".json";
-    const int nameLength = strlen(fileName);
-    const int extensionLength = strlen(extension);
-
-    if (nameLength >= extensionLength && strcmp(fileName + nameLength - extensionLength, extension) == 0) {
+    if (hasJsonExtension(fileName)) {
       if (presetCount >= maxPresetListSize) {
         sdFile.close();
         break;
@@ -665,12 +640,11 @@ FLASHMEM void setup() {
   EEPROM.get(presetEepromAddress, currentPreset);
   EEPROM.get(pcModeEepromAddress, pcModeProgram);
 
-  if (currentPreset < 0 || currentPreset >= maxPresetListSize) {
-    currentPreset = 0;
-  }
+  currentPreset = validateStoredPreset(currentPreset, maxPresetListSize);
 
-  if (pcModeProgram < 0 || pcModeProgram > 127) {
-    pcModeProgram = 0;
+  const int validatedPc = validateStoredPcProgram(pcModeProgram);
+  if (validatedPc != pcModeProgram) {
+    pcModeProgram = validatedPc;
     queuePcSave(pcModeProgram);
   }
 
