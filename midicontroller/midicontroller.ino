@@ -39,8 +39,8 @@ int currentPreset = 0;
 int presetCount = 0;
 DMAMEM char presetList[maxPresetListSize][maxPresetNameLength];
 DMAMEM StaticJsonDocument<4096> presetDoc;
-int presetEepromAddress = 0;
-int pcModeEepromAddress = 1000;
+static constexpr int presetEepromAddress = 0;
+static constexpr int pcModeEepromAddress = 1000;
 int presetListCount = 0;
 FsFile rootDir;
 FsFile sdFile;
@@ -62,7 +62,6 @@ int prefetchedPresetIndex = -1;
 int prefetchTargetIndex = -1;
 bool prefetchRequested = false;
 DMAMEM StaticJsonDocument<4096> prefetchedPresetDoc;
-
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI1);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, MIDI2);
@@ -364,7 +363,6 @@ void setPresetDisplayInfo() {
     sw3 = activePreset["Switch3"]["Name"] | "";
   }
 
-
   int sw1Length = (int)strlen(sw1);
   int sw2Length = (int)strlen(sw2);
   int sw3Length = (int)strlen(sw3);
@@ -471,17 +469,12 @@ FLASHMEM void stopMidiFile() {
       int ccChannel = ccEvent["Channel"];
       bool usbEvent = ccEvent["USB"];
 
-
       sendControlChange(ccNumber, ccValue, ccChannel, usbEvent);
     }
   }
 }
 
 FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
-
-  char text[uiTextBufferLength];
-  const char *playingText = " Playing";
-  const char *stoppingText = " Stopping";
   const char *midiFile = fileInfo["FileName"].as<const char *>();
 
   if (!playingMidiFile) {
@@ -498,51 +491,34 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
     stoppingMidiFile = true;
   }
 
+  char text[uiTextBufferLength];
   snprintf(text, sizeof(text), "%s", midiFile != nullptr ? midiFile : "");
-  int textLength = (int)strlen(text);
 
-  if (textLength > 1) {
+  if (strlen(text) > 1) {
     lcd.clear();
     displayCenteredLine(1, text);
     lcd.setCursor(0, 2);
-    if (playingMidiFile) {
-      lcd.print(playingText);
-    } else {
-      lcd.print(stoppingText);
-    }
+    lcd.print(playingMidiFile ? " Playing" : " Stopping");
     setUiMessageTimeout();
   }
 }
 
 void handlePcModeEvent(int switchNo) {
-
-  // bool usbEvent = activePreset["PCMode"]["USB"].as<bool>();
-  // int channel = activePreset["PCMode"]["Channel"].as<int>();
-
-
   if (switchNo == 2) {
     if (pcModeProgram >= 1) {
       pcModeProgram--;
     }
-
   } else {
     pcModeProgram++;
   }
 
   pcModeProgram = clampMidi(pcModeProgram);
-
-  // if (usbEvent) {
   sendProgramChange(pcModeProgram, 1, true);
-  // } else {
-  //   MIDI1.sendProgramChange(pcModeProgram, channel);
-  // }
-
   queuePcSave(pcModeProgram);
   requestPresetDisplayRefresh();
 }
 
 void executeSwitchLogic(int switchNo) {
-
   JsonObject switchLogic;
 
   switch (switchNo) {
@@ -572,7 +548,7 @@ void executeSwitchLogic(int switchNo) {
     return;
   }
 
-  const char *tempText = switchLogic["Name"].as<const char *>();
+  const char *switchName = switchLogic["Name"].as<const char *>();
   bool toggle = switchLogic["Toggle"].as<bool>();
   const bool wasToggled = isSwitchToggled(switchNo);
 
@@ -617,14 +593,13 @@ void executeSwitchLogic(int switchNo) {
   }
 
   if (toggle) {
-    showSwitchActionMessage(tempText, !wasToggled ? " On!" : " Off!");
+    showSwitchActionMessage(switchName, !wasToggled ? " On!" : " Off!");
   } else {
-    showSwitchActionMessage(tempText, "");
+    showSwitchActionMessage(switchName, "");
   }
 }
 
 FLASHMEM void changePreset() {
-
   if (pcModeOn) {
     return;
   }
@@ -694,49 +669,37 @@ FLASHMEM void changePreset() {
 }
 
 FLASHMEM void showBootScreen() {
-
-  lcd.setCursor(0, 0);           // move cursor the first row
-  lcd.print("TA Audio");         // print message at the first row
-  lcd.setCursor(0, 1);           // move cursor to the second row
-  lcd.print("SYNAPSE");          // print message at the second row
-  lcd.setCursor(0, 2);           // move cursor to the third row
-  lcd.print("MIDI CONTROLLER");  // print message at the third row
-  lcd.setCursor(0, 3);           // move cursor to the fourth row
-  lcd.print("v0.1.0");           // print message the fourth row
-
-  // Change to use millis to setup can continue whilst lcb boot seq is shown
+  lcd.setCursor(0, 0);
+  lcd.print("TA Audio");
+  lcd.setCursor(0, 1);
+  lcd.print("SYNAPSE");
+  lcd.setCursor(0, 2);
+  lcd.print("MIDI CONTROLLER");
+  lcd.setCursor(0, 3);
+  lcd.print("v0.1.0");
   delay(2000);
 }
 
 FLASHMEM void loadPresetList() {
-
-  // Open root directory
   presetListCount = 0;
   rootDir.open("/");
 
-
-
   while (sdFile.openNext(&rootDir, O_RDONLY)) {
+    char fileName[maxPresetNameLength];
+    sdFile.getName(fileName, maxPresetNameLength);
 
-    int max_characters = maxPresetNameLength;
-    char f_name[max_characters];  // the filename variable you want
-    sdFile.getName(f_name, max_characters);
-
-    // Check if the sdFile has a ".json" extension
     const char *extension = ".json";
-    int nameLength = strlen(f_name);
-    int extensionLength = strlen(extension);
+    const int nameLength = strlen(fileName);
+    const int extensionLength = strlen(extension);
 
-    // Check if the sdFile ends with ".json"
-    if (nameLength >= extensionLength && strcmp(f_name + nameLength - extensionLength, extension) == 0) {
+    if (nameLength >= extensionLength && strcmp(fileName + nameLength - extensionLength, extension) == 0) {
       if (presetListCount >= maxPresetListSize) {
         sdFile.close();
         break;
       }
-      // If it ends with ".json", copy the filename to presetList
-      strncpy(presetList[presetListCount], f_name, maxPresetNameLength);
+      strncpy(presetList[presetListCount], fileName, maxPresetNameLength);
       presetList[presetListCount][maxPresetNameLength - 1] = '\0';
-      presetListCount++;  // Increment the list length
+      presetListCount++;
     }
 
     sdFile.close();
@@ -812,8 +775,6 @@ FLASHMEM void setup() {
   MIDI3.begin(MIDI_CHANNEL_OMNI);
   MIDI3.turnThruOff();
 
-
-
   if (!SD.begin(BUILTIN_SDCARD)) {
     showError("SD Card Error", "Is the card inserted and fat32?");
     while (true)
@@ -823,10 +784,7 @@ FLASHMEM void setup() {
   midiFilePlayer.begin(&(SdFat &)SD);
   midiFilePlayer.setMidiHandler(midiFileCallback);
 
-
   loadPresetList();
-
-  // delay(500);
 
   EEPROM.get(presetEepromAddress, currentPreset);
   EEPROM.get(pcModeEepromAddress, pcModeProgram);
@@ -839,8 +797,6 @@ FLASHMEM void setup() {
     pcModeProgram = 0;
     queuePcSave(pcModeProgram);
   }
-
-  Serial.println(currentPreset);
 
   startMillis = millis();
 }
@@ -860,7 +816,6 @@ void loop() {
 
   usbHost.Task();
 
-  // usbMidiDevice.sendProgramChange(1, 1);
   MIDI1.read();
   serviceMidiPassthrough();
 
