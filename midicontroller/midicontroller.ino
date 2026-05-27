@@ -538,15 +538,32 @@ FLASHMEM void changePreset() {
 }
 
 FLASHMEM void showBootScreen() {
+  // Custom character: solid block for loading bar
+  byte fullBlock[8] = {0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F};
+  byte emptyBlock[8] = {0x1F, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1F, 0x00};
+  lcd.createChar(0, fullBlock);
+  lcd.createChar(1, emptyBlock);
+
   lcd.setCursor(0, 0);
   lcd.print("TA Audio");
   lcd.setCursor(0, 1);
   lcd.print("SYNAPSE");
   lcd.setCursor(0, 2);
   lcd.print("MIDI CONTROLLER");
-  lcd.setCursor(0, 3);
-  lcd.print("v0.1.0");
-  delay(2000);
+
+  // Draw empty loading bar frame on row 3
+  for (int i = 0; i < lcdColumnCount; i++) {
+    lcd.setCursor(i, 3);
+    lcd.write((uint8_t)1);
+  }
+
+  // Animate the loading bar filling left to right
+  for (int i = 0; i < lcdColumnCount; i++) {
+    lcd.setCursor(i, 3);
+    lcd.write((uint8_t)0);
+    delay(80);
+  }
+  delay(400);
 }
 
 FLASHMEM void loadPresetList() {
