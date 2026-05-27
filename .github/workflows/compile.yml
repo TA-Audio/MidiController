@@ -33,10 +33,14 @@ jobs:
       - name: Install Libraries from Arduino Library Manager
         run: |
           arduino-cli lib update-index
-          arduino-cli lib install "ArduinoJson"
+          arduino-cli lib install "ArduinoJson@6.21.5"
           arduino-cli lib install "MIDI Library"
           arduino-cli lib install "LiquidCrystal I2C"
           arduino-cli lib install "MD_MIDIFile"
+          # MD_MIDIFile defaults to USE_SDFAT=0 (standard Arduino File type), but the
+          # sketch uses the Teensy SdFat API. Patch the config to enable SdFat mode.
+          find ~/Arduino/libraries/MD_MIDIFile -name "MD_MIDIFile_config.h" \
+            -exec sed -i 's/#define USE_SDFAT 0/#define USE_SDFAT 1/' {} \;
 
       - name: Install debounce library from source
         # kimballa/button-debounce: provides debounce.h with Button(id, callback),
