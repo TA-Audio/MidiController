@@ -139,7 +139,7 @@ static inline void sendControlChange(int ccNumber, int ccValue, int channel, boo
 }
 
 static void setUiMessageTimeout() {
-  switchDisplayStartMillis = millis();
+  switchDisplayStartMillis = currentMillis;
   resetPresetDisplay = true;
 }
 
@@ -150,13 +150,13 @@ static inline void requestPresetDisplayRefresh() {
 static inline void queuePresetSave(int value) {
   pendingPresetValue = value;
   pendingPresetSave = true;
-  eepromDirtyMillis = millis();
+  eepromDirtyMillis = currentMillis;
 }
 
 static inline void queuePcSave(int value) {
   pendingPcValue = value;
   pendingPcSave = true;
-  eepromDirtyMillis = millis();
+  eepromDirtyMillis = currentMillis;
 }
 
 static void commitPendingEepromWrites() {
@@ -346,7 +346,7 @@ void setPresetDisplayInfo() {
     lcd.print("Current PC: ");
     lcd.print(pcModeProgram);
   } else {
-    lcd.print(activePreset["Name"].as<const char *>());  // print message at the second row
+    lcd.print(activePreset["Name"] | "");
 
     JsonObject fileInfo = activePreset["FileInfo"];
     if (!fileInfo.isNull()) {
@@ -358,10 +358,10 @@ void setPresetDisplayInfo() {
       }
 
     } else {
-      sw1 = activePreset["Switch1"]["Name"].as<const char *>();
+      sw1 = activePreset["Switch1"]["Name"] | "";
     }
-    sw2 = activePreset["Switch2"]["Name"].as<const char *>();
-    sw3 = activePreset["Switch3"]["Name"].as<const char *>();
+    sw2 = activePreset["Switch2"]["Name"] | "";
+    sw3 = activePreset["Switch3"]["Name"] | "";
   }
 
 
@@ -489,11 +489,8 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
     if (err != MD_MIDIFile::E_OK) {
       showError("Midi File load Error ", "");
     } else {
-
       midiFilePlayer.setTempo(fileInfo["BPM"].as<int>());
       midiFileOutputChannel = fileInfo["Channel"].as<int>();
-    }
-    if (err == MD_MIDIFile::E_OK) {
       playingMidiFile = true;
     }
   } else {
@@ -561,73 +558,68 @@ void executeSwitchLogic(int switchNo) {
   }
 
 
-  JsonArray switchPC = switchLogic["PC"];
-  JsonObject fileInfo = activePreset["FileInfo"];
-
-
-  if (!fileInfo.isNull() && switchNo == 1) {
-    toggleMidiFilePlayback(fileInfo);
-  } else {
-
-    if (pcModeOn) {
-      handlePcModeEvent(switchNo);
-
-    } else {
-
-      const char *tempText = switchLogic["Name"].as<const char *>();
-      bool toggle = switchLogic["Toggle"].as<bool>();
-      const bool wasToggled = isSwitchToggled(switchNo);
-      const bool nextToggleStateForMessage = !wasToggled;
-
-      const char *onText = " On!";
-      const char *offText = " Off!";
-
-      if (!switchPC.isNull()) {
-        for (JsonVariant pcEvent : switchPC) {
-          int pc = pcEvent["PC"];
-          int channel = pcEvent["Channel"];
-          bool usbEvent = pcEvent["USB"];
-
-          sendProgramChange(pc - 1, channel, usbEvent);
-        }
-      }
-
-      JsonArray ccArray = switchLogic["CC"];
-
-      if (!ccArray.isNull()) {
-        bool nextToggleState = false;
-        bool useToggleValue = false;
-
-        if (toggle) {
-          nextToggleState = !isSwitchToggled(switchNo);
-          useToggleValue = true;
-        }
-
-        for (JsonVariant cc : ccArray) {
-          int ccNumber = cc["CC"];
-          int ccValue = cc["Value"];
-
-          if (useToggleValue) {
-            ccValue = nextToggleState ? 127 : 0;
-          }
-
-          int ccChannel = cc["Channel"];
-          bool usbEvent = cc["USB"];
-
-          sendControlChange(ccNumber, ccValue, ccChannel, usbEvent);
-        }
-
-        if (useToggleValue) {
-          setSwitchToggled(switchNo, nextToggleState);
-        }
-      }
-
-      if (toggle) {
-        showSwitchActionMessage(tempText, nextToggleStateForMessage ? onText : offText);
-      } else {
-        showSwitchActionMessage(tempText, "");
-      }
+  // MIDI file playback only triggers on switch 1 — skip FileInfo lookup for 2/3
+  if (switchNo == 1) {
+    JsonObject fileInfo = activePreset["FileInfo"];
+    if (!fileInfo.isNull()) {
+      toggleMidiFilePlayback(fileInfo);
+      return;
     }
+  }
+
+  if (pcModeOn) {
+    handlePcModeEvent(switchNo);
+    return;
+  }
+
+  const char *tempText = switchLogic["Name"].as<const char *>();
+  bool toggle = switchLogic["Toggle"].as<bool>();
+  const bool wasToggled = isSwitchToggled(switchNo);
+
+  JsonArray switchPC = switchLogic["PC"];
+  if (!switchPC.isNull()) {
+    for (JsonVariant pcEvent : switchPC) {
+      int pc = pcEvent["PC"];
+      int channel = pcEvent["Channel"];
+      bool usbEvent = pcEvent["USB"];
+
+      sendProgramChange(pc - 1, channel, usbEvent);
+    }
+  }
+
+  JsonArray ccArray = switchLogic["CC"];
+  if (!ccArray.isNull()) {
+    bool nextToggleState = false;
+    bool useToggleValue = false;
+
+    if (toggle) {
+      nextToggleState = !wasToggled;
+      useToggleValue = true;
+    }
+
+    for (JsonVariant cc : ccArray) {
+      int ccNumber = cc["CC"];
+      int ccValue = cc["Value"];
+
+      if (useToggleValue) {
+        ccValue = nextToggleState ? 127 : 0;
+      }
+
+      int ccChannel = cc["Channel"];
+      bool usbEvent = cc["USB"];
+
+      sendControlChange(ccNumber, ccValue, ccChannel, usbEvent);
+    }
+
+    if (useToggleValue) {
+      setSwitchToggled(switchNo, nextToggleState);
+    }
+  }
+
+  if (toggle) {
+    showSwitchActionMessage(tempText, !wasToggled ? " On!" : " Off!");
+  } else {
+    showSwitchActionMessage(tempText, "");
   }
 }
 
@@ -838,6 +830,10 @@ FLASHMEM void setup() {
 
   EEPROM.get(presetEepromAddress, currentPreset);
   EEPROM.get(pcModeEepromAddress, pcModeProgram);
+
+  if (currentPreset < 0 || currentPreset >= maxPresetListSize) {
+    currentPreset = 0;
+  }
 
   if (pcModeProgram < 0 || pcModeProgram > 127) {
     pcModeProgram = 0;
