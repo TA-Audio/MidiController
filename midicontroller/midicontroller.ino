@@ -37,8 +37,8 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);  // I2C address 0x27, 20 columns and 4 rows
 JsonVariant activePreset;
 int currentPreset = 0;
 int presetCount = 0;
-char presetList[maxPresetListSize][maxPresetNameLength];
-StaticJsonDocument<4096> presetDoc;
+DMAMEM char presetList[maxPresetListSize][maxPresetNameLength];
+DMAMEM StaticJsonDocument<4096> presetDoc;
 int presetEepromAddress = 0;
 int pcModeEepromAddress = 1000;
 int presetListCount = 0;
@@ -61,7 +61,7 @@ int presetNavigationDirection = 1;
 int prefetchedPresetIndex = -1;
 int prefetchTargetIndex = -1;
 bool prefetchRequested = false;
-StaticJsonDocument<4096> prefetchedPresetDoc;
+DMAMEM StaticJsonDocument<4096> prefetchedPresetDoc;
 
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI1);
@@ -201,7 +201,7 @@ static void serviceMidiPassthrough() {
   }
 }
 
-bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<4096> &targetDoc) {
+FLASHMEM bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<4096> &targetDoc) {
   if (presetIndex < 0 || presetIndex >= presetCount) {
     return false;
   }
@@ -271,7 +271,7 @@ void servicePresetPrefetch() {
   prefetchTargetIndex = -1;
 }
 
-static void displayCenteredLine(int row, const char *text) {
+FLASHMEM static void displayCenteredLine(int row, const char *text) {
   if (text == nullptr) {
     return;
   }
@@ -289,7 +289,7 @@ static void displayCenteredLine(int row, const char *text) {
   }
 }
 
-static void showSwitchActionMessage(const char *text, const char *suffix) {
+FLASHMEM static void showSwitchActionMessage(const char *text, const char *suffix) {
   char lineBuffer[uiTextBufferLength];
   if (suffix != nullptr && suffix[0] != '\0') {
     snprintf(lineBuffer, sizeof(lineBuffer), "%s%s", text != nullptr ? text : "", suffix);
@@ -306,7 +306,7 @@ static void showSwitchActionMessage(const char *text, const char *suffix) {
   setUiMessageTimeout();
 }
 
-static int comparePresetNames(const void *lhs, const void *rhs) {
+FLASHMEM static int comparePresetNames(const void *lhs, const void *rhs) {
   const char *a = static_cast<const char *>(lhs);
   const char *b = static_cast<const char *>(rhs);
 
@@ -322,7 +322,7 @@ static int comparePresetNames(const void *lhs, const void *rhs) {
   return strncmp(a, b, maxPresetNameLength);
 }
 
-void showError(const char *errorMessageLine1, const char *errorMessageLine2) {
+FLASHMEM void showError(const char *errorMessageLine1, const char *errorMessageLine2) {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(errorMessageLine1);
@@ -465,7 +465,7 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
   }
 }
 
-void stopMidiFile() {
+FLASHMEM void stopMidiFile() {
   JsonArray stopCC = activePreset["FileInfo"]["StopCC"];
 
   if (!stopCC.isNull()) {
@@ -481,7 +481,7 @@ void stopMidiFile() {
   }
 }
 
-void toggleMidiFilePlayback(JsonObject fileInfo) {
+FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
 
   char text[uiTextBufferLength];
   const char *playingText = " Playing";
@@ -635,7 +635,7 @@ void executeSwitchLogic(int switchNo) {
   }
 }
 
-void changePreset() {
+FLASHMEM void changePreset() {
 
   if (pcModeOn) {
     return;
@@ -705,7 +705,7 @@ void changePreset() {
   queueDirectionalPresetPrefetch();
 }
 
-void showBootScreen() {
+FLASHMEM void showBootScreen() {
 
   lcd.setCursor(0, 0);           // move cursor the first row
   lcd.print("TA Audio");         // print message at the first row
@@ -720,7 +720,7 @@ void showBootScreen() {
   delay(2000);
 }
 
-void loadPresetList() {
+FLASHMEM void loadPresetList() {
 
   // Open root directory
   presetListCount = 0;
@@ -773,7 +773,7 @@ void loadPresetList() {
 }
 
 // Function to extract number from filename
-int extractNumber(const char *filename) {
+FLASHMEM int extractNumber(const char *filename) {
   int num = 0;
   int i = 0;
   while (filename[i] != '\0' && filename[i] >= '0' && filename[i] <= '9') {
@@ -797,7 +797,7 @@ static Button switch3Button(3, switchHandler);
 static Button nextPresetButton(4, switchHandler);
 static Button prevPresetButton(5, switchHandler);
 
-void setup() {
+FLASHMEM void setup() {
 
   lcd.init();  // initialize the lcd
   lcd.backlight();
