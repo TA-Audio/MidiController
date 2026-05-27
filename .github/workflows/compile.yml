@@ -39,10 +39,10 @@ jobs:
           arduino-cli lib install "MD_MIDIFile"
 
       - name: Install debounce library from source
-        # debounce.h (Button class with BTN_PRESSED/BTN_OPEN) is not published
-        # in the Arduino Library Manager index, so install directly from git.
+        # kimballa/button-debounce: provides debounce.h with Button(id, callback),
+        # BTN_PRESSED/BTN_OPEN constants, and update(bool). Not in Arduino Library Manager.
         run: |
-          arduino-cli lib install --git-url https://github.com/ElevenTimes/Debounce.git
+          arduino-cli lib install --git-url https://github.com/kimballa/button-debounce.git
 
       - name: Compile Teensy 4.1 Firmware
         run: |
