@@ -206,3 +206,98 @@ inline int clampPresetIndex(int index, int presetCount) {
   if (index < 0 || index >= presetCount) return 0;
   return index;
 }
+
+// ── Debounce state machine ───────────────────────────────────────────────────
+
+/// Debounce constants matching kimballa/button-debounce behaviour.
+static constexpr unsigned long debounceIntervalMs = 25;
+
+static constexpr uint8_t BTN_STATE_OPEN = 1;
+static constexpr uint8_t BTN_STATE_PRESSED = 0;
+
+/// A minimal pure-logic debounce state machine for unit testing.
+/// Mirrors the algorithm in kimballa/button-debounce without Arduino dependencies.
+struct DebounceState {
+  uint8_t currentState;         // BTN_STATE_OPEN or BTN_STATE_PRESSED
+  uint8_t priorPoll;            // last raw sample
+  unsigned long readStartTime;  // when the current candidate reading began
+  unsigned long pushInterval;   // ms to confirm a press
+  unsigned long releaseInterval; // ms to confirm a release
+
+  /// Initialize to open (unpressed) state.
+  void init(unsigned long pushMs = debounceIntervalMs, unsigned long releaseMs = debounceIntervalMs) {
+    currentState = BTN_STATE_OPEN;
+    priorPoll = BTN_STATE_OPEN;
+    readStartTime = 0;
+    pushInterval = pushMs;
+    releaseInterval = releaseMs;
+  }
+
+  /// Feed a new sample at the given time.  Returns true if state changed.
+  bool update(uint8_t sample, unsigned long currentMs) {
+    sample = (sample != 0) ? 1 : 0;  // collapse to 0/1
+
+    if (sample != priorPoll) {
+      readStartTime = currentMs;  // signal changed — reset timer
+    }
+    priorPoll = sample;
+
+    unsigned long interval = (currentState == BTN_STATE_PRESSED) ? releaseInterval : pushInterval;
+
+    if ((currentMs - readStartTime) > interval) {
+      if (sample != currentState) {
+        currentState = sample;
+        return true;  // state changed
+      }
+    }
+    return false;
+  }
+};
+
+// ── Switch handler routing logic ─────────────────────────────────────────────
+
+/// Determines the action to take when a debounced button event occurs.
+/// This mirrors the firmware's switchHandler decision tree.
+enum class SwitchAction {
+  None,               // no action (not loaded, or invalid)
+  ExecuteSwitch,      // fire switch logic for button 1/2/3
+  TogglePcMode,       // long-hold on nav button toggled PC mode
+  NavigateNext,       // short press on next preset button
+  NavigatePrev,       // short press on prev preset button
+  RecordHoldStart     // BTN_PRESSED on nav button — just record timestamp
+};
+
+/// Determine what action to take given a button event.
+/// `btnId`: 1–5, `btnState`: BTN_STATE_PRESSED or BTN_STATE_OPEN
+/// `hasLoaded`: whether initial load is complete
+/// `longHoldElapsed`: whether the long-hold threshold was reached
+inline SwitchAction classifySwitchEvent(uint8_t btnId, uint8_t btnState,
+                                        bool hasLoaded, bool longHoldElapsed) {
+  if (btnState == BTN_STATE_PRESSED) {
+    if (hasLoaded && btnId >= 1 && btnId <= 3) {
+      return SwitchAction::ExecuteSwitch;
+    }
+    if (btnId == 4 || btnId == 5) {
+      return SwitchAction::RecordHoldStart;
+    }
+    return SwitchAction::None;
+  }
+
+  // BTN_STATE_OPEN (release)
+  if (!hasLoaded) {
+    return SwitchAction::None;
+  }
+
+  if ((btnId == 4 || btnId == 5) && longHoldElapsed) {
+    return SwitchAction::TogglePcMode;
+  }
+
+  if (btnId == 4) {
+    return SwitchAction::NavigateNext;
+  }
+  if (btnId == 5) {
+    return SwitchAction::NavigatePrev;
+  }
+
+  return SwitchAction::None;
+}

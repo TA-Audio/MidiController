@@ -19,7 +19,7 @@ FetchContent_MakeAvailable(googletest arduinojson)
 
 enable_testing()
 
-add_executable(midi_controller_tests test_logic.cpp test_midi_messages.cpp)
+add_executable(midi_controller_tests test_logic.cpp test_midi_messages.cpp test_debounce.cpp)
 target_include_directories(midi_controller_tests PRIVATE ${CMAKE_SOURCE_DIR}/../midicontroller)
 target_link_libraries(midi_controller_tests GTest::gtest_main ArduinoJson)
 
