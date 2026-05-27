@@ -23,20 +23,26 @@ jobs:
         run: |
           arduino-cli config init --overwrite
           arduino-cli config set board_manager.additional_urls https://www.pjrc.com/teensy/package_teensy_index.json
+          arduino-cli config set library.enable_unsafe_install true
 
       - name: Install Teensy Core
         run: |
           arduino-cli core update-index
           arduino-cli core install teensy:avr
 
-      - name: Install Required Libraries
+      - name: Install Libraries from Arduino Library Manager
         run: |
           arduino-cli lib update-index
           arduino-cli lib install "ArduinoJson"
           arduino-cli lib install "MIDI Library"
           arduino-cli lib install "LiquidCrystal I2C"
           arduino-cli lib install "MD_MIDIFile"
-          arduino-cli lib install "Debounce"
+
+      - name: Install debounce library from source
+        # debounce.h (Button class with BTN_PRESSED/BTN_OPEN) is not published
+        # in the Arduino Library Manager index, so install directly from git.
+        run: |
+          arduino-cli lib install --git-url https://github.com/ElevenTimes/Debounce.git
 
       - name: Compile Teensy 4.1 Firmware
         run: |
