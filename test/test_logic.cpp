@@ -147,15 +147,17 @@ TEST(HasElapsed, ZeroDuration) {
 
 TEST(HasElapsed, UnsignedOverflowElapsed) {
   // Simulates millis() wrap-around: start near max, current past zero
-  // start = 0xFFFFFFF0, current = 0x10, duration = 0x20
-  // elapsed = 0x10 - 0xFFFFFFF0 = 0x20 (unsigned wrap)
-  EXPECT_TRUE(hasElapsed(0x10UL, 0xFFFFFFF0UL, 0x20UL));
+  // On Arduino/Teensy unsigned long is 32-bit.  On 64-bit Linux it's 64-bit.
+  // Use values that work correctly under both widths.
+  const unsigned long start = (unsigned long)(-50);  // near max
+  const unsigned long current = start + 100;         // 100ms after start (wraps on 32-bit)
+  EXPECT_TRUE(hasElapsed(current, start, 100));
 }
 
 TEST(HasElapsed, UnsignedOverflowNotYetElapsed) {
-  // Same wrap but not enough time has passed
-  // elapsed = 0x05 - 0xFFFFFFF0 = 0x15, duration = 0x20
-  EXPECT_FALSE(hasElapsed(0x05UL, 0xFFFFFFF0UL, 0x20UL));
+  const unsigned long start = (unsigned long)(-50);
+  const unsigned long current = start + 30;          // only 30ms after start
+  EXPECT_FALSE(hasElapsed(current, start, 100));
 }
 
 TEST(HasElapsed, LongHoldThreshold) {
