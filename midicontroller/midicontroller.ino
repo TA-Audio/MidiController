@@ -8,23 +8,7 @@
 #include <MD_MIDIFile.h>
 #include <stdlib.h>
 #include <string.h>
-
-static constexpr int switch1Pin = 2;
-static constexpr int switch2Pin = 3;
-static constexpr int switch3Pin = 4;
-static constexpr int switchCount = 3;
-static constexpr int nextPresetPin = 5;
-static constexpr int prevPresetPin = 6;
-static constexpr unsigned long initialLoadDelayMs = 1000;
-static constexpr unsigned long switchDisplayPeriodMs = 1500;
-static constexpr unsigned long longHoldToggleMs = 3000;
-static constexpr int lcdColumnCount = 20;
-static constexpr int maxPresetListSize = 150;
-static constexpr int maxPresetNameLength = 25;
-static constexpr int uiTextBufferLength = 50;
-static constexpr int midiValueMin = 0;
-static constexpr int midiValueMax = 127;
-static constexpr unsigned long eepromCommitDelayMs = 200;
+#include "logic.h"
 
 bool hasLoaded = false;
 bool switchToggled[switchCount] = {};
@@ -38,8 +22,6 @@ int currentPreset = 0;
 int presetCount = 0;
 DMAMEM char presetList[maxPresetListSize][maxPresetNameLength];
 DMAMEM StaticJsonDocument<4096> presetDoc;
-static constexpr int presetEepromAddress = 0;
-static constexpr int pcModeEepromAddress = 1000;
 FsFile rootDir;
 FsFile sdFile;
 MD_MIDIFile midiFilePlayer;
@@ -68,7 +50,6 @@ MIDI_CREATE_INSTANCE(HardwareSerial, Serial3, MIDI3);
 USBHost usbHost;
 MIDIDevice usbMidiDevice(usbHost);
 
-int extractNumber(const char *filename);
 bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<4096> &targetDoc);
 bool applyPresetByIndex(int presetIndex);
 void queueDirectionalPresetPrefetch();
@@ -77,20 +58,6 @@ void changePreset();
 void executeSwitchLogic(int switchNo);
 void setPresetDisplayInfo();
 void showError(const char *errorMessageLine1, const char *errorMessageLine2);
-
-static inline bool hasElapsed(unsigned long start, unsigned long durationMs) {
-  return (currentMillis - start) >= durationMs;
-}
-
-static inline int clampMidi(int value) {
-  if (value < midiValueMin) {
-    return midiValueMin;
-  }
-  if (value > midiValueMax) {
-    return midiValueMax;
-  }
-  return value;
-}
 
 static inline void sendProgramChange(int pcValue, int channel, bool usbEvent) {
   const int safePc = clampMidi(pcValue);
@@ -148,7 +115,7 @@ static inline void queuePcSave(int value) {
 
 static void commitPendingEepromWrites() {
   const bool hasPendingWrite = pendingPresetSave || pendingPcSave;
-  if (!hasPendingWrite || !hasElapsed(eepromDirtyMillis, eepromCommitDelayMs)) {
+  if (!hasPendingWrite || !hasElapsed(currentMillis, eepromDirtyMillis, eepromCommitDelayMs)) {
     return;
   }
 
@@ -265,7 +232,7 @@ FLASHMEM static void displayCenteredLine(int row, const char *text) {
 
   const int textLength = (int)strlen(text);
   const int safeLength = textLength > lcdColumnCount ? lcdColumnCount : textLength;
-  const int padding = (lcdColumnCount - safeLength) / 2;
+  const int padding = calculateCenterPadding(textLength);
 
   lcd.setCursor(0, row);
   for (int i = 0; i < padding; i++) {
@@ -294,22 +261,6 @@ FLASHMEM static void showSwitchActionMessage(const char *text, const char *suffi
   lcd.clear();
   displayCenteredLine(1, lineBuffer);
   setUiMessageTimeout();
-}
-
-FLASHMEM static int comparePresetNames(const void *lhs, const void *rhs) {
-  const char *a = static_cast<const char *>(lhs);
-  const char *b = static_cast<const char *>(rhs);
-
-  const int numA = extractNumber(a);
-  const int numB = extractNumber(b);
-
-  if (numA < numB) {
-    return -1;
-  }
-  if (numA > numB) {
-    return 1;
-  }
-  return strncmp(a, b, maxPresetNameLength);
 }
 
 FLASHMEM void showError(const char *errorMessageLine1, const char *errorMessageLine2) {
@@ -358,10 +309,8 @@ void setPresetDisplayInfo() {
   int sw2Length = (int)strlen(sw2);
   int sw3Length = (int)strlen(sw3);
 
-  // Calculate the padding needed for each string
-  int totalLength = sw1Length + sw2Length + sw3Length;
-  int padding1 = (totalLength < lcdColumnCount) ? (lcdColumnCount - totalLength) / 2 : 0;
-  int padding3 = (totalLength < lcdColumnCount) ? (lcdColumnCount - totalLength + 1) / 2 : 0;
+  int padding1, padding3;
+  calculateSwitchPadding(sw1Length, sw2Length, sw3Length, padding1, padding3);
 
   char sw1Indicator[maxPresetNameLength];
   char sw2Indicator[maxPresetNameLength];
@@ -428,7 +377,7 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
     return;
   }
 
-  if ((btnId == 4 || btnId == 5) && hasElapsed(longHoldStartMillis, longHoldToggleMs)) {
+  if ((btnId == 4 || btnId == 5) && hasElapsed(currentMillis, longHoldStartMillis, longHoldToggleMs)) {
     pcModeOn = !pcModeOn;
     sendProgramChange(pcModeProgram, 1, true);
     requestPresetDisplayRefresh();
@@ -437,14 +386,14 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
 
   if (btnId == 4) {
     presetNavigationDirection = 1;
-    if (currentPreset >= (presetCount - 1)) {
+    if (!canNavigateNext(currentPreset, presetCount)) {
       return;
     }
     currentPreset++;
     changePreset();
   } else if (btnId == 5) {
     presetNavigationDirection = -1;
-    if (currentPreset <= 0) {
+    if (!canNavigatePrev(currentPreset)) {
       return;
     }
     currentPreset--;
@@ -486,15 +435,7 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
 }
 
 void handlePcModeEvent(int switchNo) {
-  if (switchNo == 2) {
-    if (pcModeProgram >= 1) {
-      pcModeProgram--;
-    }
-  } else {
-    pcModeProgram++;
-  }
-
-  pcModeProgram = clampMidi(pcModeProgram);
+  pcModeProgram = adjustPcProgram(pcModeProgram, switchNo == 2);
   sendProgramChange(pcModeProgram, 1, true);
   queuePcSave(pcModeProgram);
   requestPresetDisplayRefresh();
@@ -669,17 +610,6 @@ FLASHMEM void loadPresetList() {
   prefetchTargetIndex = -1;
   prefetchRequested = false;
   prefetchedPresetDoc.clear();
-}
-
-// Function to extract number from filename
-FLASHMEM int extractNumber(const char *filename) {
-  int num = 0;
-  int i = 0;
-  while (filename[i] != '\0' && filename[i] >= '0' && filename[i] <= '9') {
-    num = num * 10 + (filename[i] - '0');
-    i++;
-  }
-  return num;
 }
 
 void midiFileCallback(midi_event *pev) {
