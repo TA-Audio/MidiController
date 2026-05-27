@@ -82,7 +82,7 @@ void setPresetDisplayInfo();
 void showError(const char *errorMessageLine1, const char *errorMessageLine2);
 
 static inline bool hasElapsed(unsigned long start, unsigned long durationMs) {
-  return (millis() - start) >= durationMs;
+  return (currentMillis - start) >= durationMs;
 }
 
 static inline int clampMidi(int value) {
@@ -426,42 +426,38 @@ void setPresetDisplayInfo() {
 }
 
 static void switchHandler(uint8_t btnId, uint8_t btnState) {
-
-  if (btnState == BTN_PRESSED && (btnId == 4 || btnId == 5) && hasElapsed(longHoldStartMillis, longHoldToggleMs) && hasLoaded) {
-    pcModeOn = !pcModeOn;
-
-    sendProgramChange(pcModeProgram, 1, true);
-    requestPresetDisplayRefresh();
-
-
+  if (btnState == BTN_OPEN) {
+    longHoldStartMillis = currentMillis;
     return;
   }
 
-  if (btnState == BTN_PRESSED && hasLoaded) {
-    if (btnId == 1 || btnId == 2 || btnId == 3) {
-      executeSwitchLogic(btnId);
-    } else if (btnId == 4) {
-      presetNavigationDirection = 1;
-      if (currentPreset >= (presetCount - 1)) {
-        return;
-      }
-
-      currentPreset++;
-
-      changePreset();
-    } else if (btnId == 5) {
-      presetNavigationDirection = -1;
-      currentPreset--;
-      if (currentPreset < 0) {
-        currentPreset = 0;
-      }
-
-      changePreset();
-    }
+  if (!hasLoaded) {
+    return;
   }
 
-  if (btnState == BTN_OPEN) {
-    longHoldStartMillis = millis();
+  // Long-hold toggle only applies to nav buttons
+  if ((btnId == 4 || btnId == 5) && hasElapsed(longHoldStartMillis, longHoldToggleMs)) {
+    pcModeOn = !pcModeOn;
+    sendProgramChange(pcModeProgram, 1, true);
+    requestPresetDisplayRefresh();
+    return;
+  }
+
+  if (btnId <= 3) {
+    executeSwitchLogic(btnId);
+  } else if (btnId == 4) {
+    presetNavigationDirection = 1;
+    if (currentPreset >= (presetCount - 1)) {
+      return;
+    }
+    currentPreset++;
+    changePreset();
+  } else if (btnId == 5) {
+    presetNavigationDirection = -1;
+    if (currentPreset > 0) {
+      currentPreset--;
+    }
+    changePreset();
   }
 }
 
@@ -854,13 +850,12 @@ FLASHMEM void setup() {
 }
 
 static void pollButtons() {
-  // update() will call buttonHandler() if PIN transitions to a new state and stays there
-  // for multiple reads over 25+ ms.
-  switch1Button.update(digitalRead(switch1Pin));
-  switch2Button.update(digitalRead(switch2Pin));
-  switch3Button.update(digitalRead(switch3Pin));
-  nextPresetButton.update(digitalRead(nextPresetPin));
-  prevPresetButton.update(digitalRead(prevPresetPin));
+  // digitalReadFast compiles to a single register read vs digitalRead's pin lookup table.
+  switch1Button.update(digitalReadFast(switch1Pin));
+  switch2Button.update(digitalReadFast(switch2Pin));
+  switch3Button.update(digitalReadFast(switch3Pin));
+  nextPresetButton.update(digitalReadFast(nextPresetPin));
+  prevPresetButton.update(digitalReadFast(prevPresetPin));
 }
 
 void loop() {
@@ -893,7 +888,7 @@ void loop() {
       stoppingMidiFile = true;
     }
   } else {
-    if (stoppingMidiFile == true) {
+    if (stoppingMidiFile) {
       midiFilePlayer.close();
       stopMidiFile();
       stoppingMidiFile = false;
