@@ -27,7 +27,9 @@ Each preset can define `OnLoad` PC and CC messages that are sent automatically w
 ### MIDI File Playback
 - Assign a `.mid` file to a preset via the `FileInfo` key.
 - Switch 1 becomes **Play / Stop** for that file.
+- The selected MIDI file is prepared when its preset is loaded and stays ready between plays, reducing delay when Switch 1 starts playback.
 - Optional BPM override and output channel. If `FileInfo.BPM` is omitted or null, playback uses the tempo embedded in the MIDI file.
+- Set `FileInfo.SendMidiClock` to `true` to send MIDI Start, 24-PPQN Clock pulses, and MIDI Stop over DIN MIDI OUT during playback. The pulse rate follows the tempo currently used by the MIDI file player.
 - Optional `StopCC` array to send CC messages when playback stops (e.g. silence a looper).
 
 ### Program Change (PC) Mode
@@ -39,7 +41,7 @@ Each preset can define `OnLoad` PC and CC messages that are sent automatically w
 ### MIDI I/O
 | Port | Direction | Purpose |
 |---|---|---|
-| **Serial1 (DIN MIDI OUT)** | Output | PC and CC messages from presets and PC Mode. |
+| **Serial1 (DIN MIDI OUT)** | Output | Preset and PC Mode messages, MIDI file events, and optional MIDI clock. |
 | **Serial2 (DIN MIDI IN 1)** | Input | Passes through to Serial1 (MIDI merge). |
 | **Serial3 (DIN MIDI IN 2)** | Input | Passes through to Serial1 (MIDI merge). |
 | **USB Host MIDI** | Output | PC and CC messages when `"USB": true` in the preset. |
@@ -125,6 +127,7 @@ When `FileInfo` is present, Switch 1 becomes a play/stop control for the specifi
     "FileName": "song.mid",
     "BPM": 120,
     "Channel": 10,
+    "SendMidiClock": true,
     "StopCC": [{ "CC": 4, "Value": 0, "Channel": 11 }]
   },
   "OnLoad": {
@@ -151,6 +154,7 @@ When `FileInfo` is present, Switch 1 becomes a play/stop control for the specifi
 | `FileInfo.FileName` | string | Name of the `.mid` file on the SD card. |
 | `FileInfo.BPM` | int | Optional playback tempo override. If omitted or `null`, the tempo embedded in the MIDI file is used. |
 | `FileInfo.Channel` | int | MIDI output channel for file playback. |
+| `FileInfo.SendMidiClock` | bool | Optional. If `true`, sends MIDI Start/Clock/Stop over DIN MIDI OUT while the file is playing (24 clocks per quarter note). Defaults to `false`. |
 | `FileInfo.StopCC[]` | array | CC messages sent when playback stops. |
 | `*.USB` | bool | If `true`, the message is sent over USB Host MIDI instead of DIN. |
 | `*.Channel` | int | MIDI channel (1–16). |

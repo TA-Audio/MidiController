@@ -16,6 +16,7 @@
       "FileName": "unsuskemper.mid",
       "BPM": 135,
       "Channel": 11,
+      "SendMidiClock": false,
       "StopCC": [
         {
           "CC": 4,

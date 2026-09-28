@@ -29,6 +29,11 @@ MD_MIDIFile midiFilePlayer;
 int midiFileOutputChannel;
 bool playingMidiFile = false;
 bool stoppingMidiFile = false;
+bool midiFileLoaded = false;
+bool midiClockEnabled = false;
+uint16_t midiClockTempo = 0;
+uint32_t midiClockIntervalUs = 0;
+uint32_t midiClockNextPulseUs = 0;
 int pcModeProgram = 0;
 bool pcModeOn = false;
 unsigned long longHoldStartMillis;
@@ -406,25 +411,97 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
 }
 
 FLASHMEM void stopMidiFile() {
+  if (midiClockEnabled) {
+    MIDI1.sendStop();
+    midiClockEnabled = false;
+  }
   sendCcArray(activePreset["FileInfo"]["StopCC"]);
+}
+
+static void startMidiClock(bool enabled) {
+  midiClockEnabled = enabled;
+  if (!midiClockEnabled) {
+    return;
+  }
+
+  midiClockTempo = midiFilePlayer.getTempo();
+  midiClockIntervalUs = midiClockIntervalForTempo(midiClockTempo);
+  if (midiClockIntervalUs == 0) {
+    midiClockEnabled = false;
+    return;
+  }
+
+  MIDI1.sendStart();
+  MIDI1.sendClock();
+  midiClockNextPulseUs = micros() + midiClockIntervalUs;
+}
+
+static void serviceMidiClock() {
+  if (!midiClockEnabled || !playingMidiFile) {
+    return;
+  }
+
+  const uint16_t tempo = midiFilePlayer.getTempo();
+  if (tempo != midiClockTempo) {
+    midiClockTempo = tempo;
+    midiClockIntervalUs = midiClockIntervalForTempo(tempo);
+    midiClockNextPulseUs = micros() + midiClockIntervalUs;
+  }
+  if (midiClockIntervalUs == 0) {
+    return;
+  }
+
+  const uint32_t now = micros();
+  if (static_cast<int32_t>(now - midiClockNextPulseUs) < 0) {
+    return;
+  }
+
+  MIDI1.sendClock();
+  midiClockNextPulseUs += midiClockIntervalUs;
+  if (static_cast<int32_t>(now - midiClockNextPulseUs) >= static_cast<int32_t>(midiClockIntervalUs)) {
+    midiClockNextPulseUs = now + midiClockIntervalUs;
+  }
+}
+
+static bool prepareMidiFilePlayback(JsonObject fileInfo) {
+  const char *midiFile = fileInfo["FileName"].as<const char *>();
+  if (midiFile == nullptr || midiFile[0] == '\0') {
+    return false;
+  }
+
+  midiFilePlayer.close();
+  midiFileLoaded = false;
+
+  if (midiFilePlayer.load(midiFile) != MD_MIDIFile::E_OK) {
+    midiFilePlayer.close();
+    return false;
+  }
+
+  midiFileLoaded = true;
+  return true;
 }
 
 FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
   const char *midiFile = fileInfo["FileName"].as<const char *>();
 
   if (!playingMidiFile) {
-    int err = midiFilePlayer.load(midiFile);
-    if (err != MD_MIDIFile::E_OK) {
+    if (!midiFileLoaded && !prepareMidiFilePlayback(fileInfo)) {
       showError("Midi File load Error ", "");
-    } else {
-      const int tempoOverride = configuredMidiTempoOverride(
-        fileInfo["BPM"].is<int>(), fileInfo["BPM"].as<int>());
-      if (tempoOverride > 0) {
-        midiFilePlayer.setTempo(tempoOverride);
-      }
-      midiFileOutputChannel = fileInfo["Channel"].as<int>();
-      playingMidiFile = true;
+      return;
     }
+
+    midiFilePlayer.setTempo(120);
+    const int tempoOverride = configuredMidiTempoOverride(
+      fileInfo["BPM"].is<int>(), fileInfo["BPM"].as<int>());
+    if (tempoOverride > 0) {
+      midiFilePlayer.setTempo(tempoOverride);
+    }
+    midiFilePlayer.restart();
+    midiFileOutputChannel = fileInfo["Channel"].as<int>();
+    stoppingMidiFile = false;
+    playingMidiFile = true;
+    startMidiClock(fileInfo["SendMidiClock"].is<bool>() &&
+      fileInfo["SendMidiClock"].as<bool>());
   } else {
     playingMidiFile = false;
     stoppingMidiFile = true;
@@ -546,10 +623,14 @@ FLASHMEM void changePreset() {
     currentPreset = 0;
   }
 
-  if (playingMidiFile) {
-    playingMidiFile = false;
-    stoppingMidiFile = true;
+  const bool stopActiveMidiFile = playingMidiFile || stoppingMidiFile;
+  if (stopActiveMidiFile && activePresetValid) {
+    stopMidiFile();
   }
+  midiFilePlayer.close();
+  midiFileLoaded = false;
+  playingMidiFile = false;
+  stoppingMidiFile = false;
 
   memset(switchToggled, 0, sizeof(switchToggled));
 
@@ -565,6 +646,11 @@ FLASHMEM void changePreset() {
 
   activePreset = presetDoc;
   activePresetValid = true;
+
+  JsonObject fileInfo = activePreset["FileInfo"];
+  if (!fileInfo.isNull()) {
+    prepareMidiFilePlayback(fileInfo);
+  }
 
   sendPcArray(activePreset["OnLoad"]["PC"]);
   sendCcArray(activePreset["OnLoad"]["CC"]);
@@ -744,7 +830,6 @@ void loop() {
     }
   } else {
     if (stoppingMidiFile) {
-      midiFilePlayer.close();
       stopMidiFile();
       stoppingMidiFile = false;
       playingMidiFile = false;
@@ -752,6 +837,7 @@ void loop() {
     }
   }
 
+  serviceMidiClock();
   servicePresetDisplayRefresh();
   servicePresetPrefetch();
   commitPendingEepromWrites();

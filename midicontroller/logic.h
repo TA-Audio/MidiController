@@ -44,6 +44,11 @@ inline int configuredMidiTempoOverride(bool tempoIsSet, int tempoBpm) {
   return tempoIsSet && tempoBpm > 0 ? tempoBpm : 0;
 }
 
+/// Calculate the interval between MIDI Clock pulses at 24 pulses per quarter note.
+inline uint32_t midiClockIntervalForTempo(uint16_t tempo) {
+  return tempo == 0 ? 0 : 60000000UL / (static_cast<uint32_t>(tempo) * 24UL);
+}
+
 // ── EEPROM addresses ─────────────────────────────────────────────────────────
 
 static constexpr int presetEepromAddress = 0;

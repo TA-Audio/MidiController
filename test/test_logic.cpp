@@ -54,6 +54,22 @@ TEST(ConfiguredMidiTempoOverride, NegativeTempoUsesMidiFileTempo) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// MidiClockIntervalForTempo
+// ═══════════════════════════════════════════════════════════════════════════════
+
+TEST(MidiClockIntervalForTempo, ZeroTempoDisablesClock) {
+  EXPECT_EQ(midiClockIntervalForTempo(0), 0U);
+}
+
+TEST(MidiClockIntervalForTempo, Calculates24PpqnIntervalAt120Bpm) {
+  EXPECT_EQ(midiClockIntervalForTempo(120), 20833U);
+}
+
+TEST(MidiClockIntervalForTempo, Calculates24PpqnIntervalAt60Bpm) {
+  EXPECT_EQ(midiClockIntervalForTempo(60), 41666U);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ExtractNumber
 // ═══════════════════════════════════════════════════════════════════════════════
 
