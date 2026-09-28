@@ -10,6 +10,7 @@ A feature-rich MIDI foot controller built on the **Teensy 4.1** platform. Design
 - Navigate presets with dedicated **Next / Previous** foot switches.
 - The active preset index is saved to EEPROM so the controller remembers its position across power cycles.
 - Presets are prefetched in the direction of navigation for instant loading.
+- Invalid preset JSON displays an error; use **Next / Previous** to skip the preset.
 
 ### Three Configurable Foot Switches
 Each preset defines up to three foot switch actions (`Switch1`, `Switch2`, `Switch3`):
@@ -26,7 +27,7 @@ Each preset can define `OnLoad` PC and CC messages that are sent automatically w
 ### MIDI File Playback
 - Assign a `.mid` file to a preset via the `FileInfo` key.
 - Switch 1 becomes **Play / Stop** for that file.
-- Configurable BPM and output channel.
+- Optional BPM override and output channel. If `FileInfo.BPM` is omitted or null, playback uses the tempo embedded in the MIDI file.
 - Optional `StopCC` array to send CC messages when playback stops (e.g. silence a looper).
 
 ### Program Change (PC) Mode
@@ -148,7 +149,7 @@ When `FileInfo` is present, Switch 1 becomes a play/stop control for the specifi
 | `Switch1/2/3.CC[]` | array | CC messages sent on press. In toggle mode, value is overridden to 127 (on) or 0 (off). |
 | `Switch1/2/3.PC[]` | array | PC messages sent on press. `PC` value is 1-indexed (internally decremented by 1). |
 | `FileInfo.FileName` | string | Name of the `.mid` file on the SD card. |
-| `FileInfo.BPM` | int | Playback tempo. |
+| `FileInfo.BPM` | int | Optional playback tempo override. If omitted or `null`, the tempo embedded in the MIDI file is used. |
 | `FileInfo.Channel` | int | MIDI output channel for file playback. |
 | `FileInfo.StopCC[]` | array | CC messages sent when playback stops. |
 | `*.USB` | bool | If `true`, the message is sent over USB Host MIDI instead of DIN. |

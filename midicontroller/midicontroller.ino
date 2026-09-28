@@ -18,6 +18,7 @@ unsigned long switchDisplayStartMillis = 0;
 bool resetPresetDisplay = false;
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // I2C address 0x27, 20 columns and 4 rows
 JsonVariant activePreset;
+bool activePresetValid = false;
 int currentPreset = 0;
 int presetCount = 0;
 DMAMEM char presetList[maxPresetListSize][maxPresetNameLength];
@@ -162,6 +163,7 @@ FLASHMEM bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<4096
 
   const char *fileName = presetList[presetIndex];
   if (!sdFile.open(fileName, O_READ)) {
+    targetDoc.clear();
     return false;
   }
 
@@ -169,17 +171,32 @@ FLASHMEM bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<4096
   DeserializationError error = deserializeJson(targetDoc, sdFile);
   sdFile.close();
 
-  return !error;
+  if (error || !targetDoc.is<JsonObject>()) {
+    targetDoc.clear();
+    return false;
+  }
+
+  return true;
 }
 
 bool applyPresetByIndex(int presetIndex) {
   if (prefetchedPresetIndex == presetIndex) {
     presetDoc.clear();
     presetDoc.set(prefetchedPresetDoc.as<JsonVariantConst>());
+    prefetchedPresetDoc.clear();
+    prefetchedPresetIndex = -1;
     return true;
   }
 
-  return loadPresetDocumentByIndex(presetIndex, presetDoc);
+  prefetchedPresetIndex = -1;
+  if (!loadPresetDocumentByIndex(presetIndex, prefetchedPresetDoc)) {
+    return false;
+  }
+
+  presetDoc.clear();
+  presetDoc.set(prefetchedPresetDoc.as<JsonVariantConst>());
+  prefetchedPresetDoc.clear();
+  return true;
 }
 
 void queueDirectionalPresetPrefetch() {
@@ -206,6 +223,8 @@ void servicePresetPrefetch() {
 
   if (loadPresetDocumentByIndex(prefetchTargetIndex, prefetchedPresetDoc)) {
     prefetchedPresetIndex = prefetchTargetIndex;
+  } else {
+    prefetchedPresetIndex = -1;
   }
 
   prefetchRequested = false;
@@ -267,6 +286,10 @@ void setPresetDisplayInfo() {
     lcd.setCursor(0, 1);
     lcd.print("Current PC: ");
     lcd.print(pcModeProgram);
+  } else if (!activePresetValid) {
+    displayCenteredLine(0, "Preset load error");
+    displayCenteredLine(1, "Next/Prev to skip");
+    return;
   } else {
     lcd.print(activePreset["Name"] | "");
 
@@ -394,7 +417,11 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
     if (err != MD_MIDIFile::E_OK) {
       showError("Midi File load Error ", "");
     } else {
-      midiFilePlayer.setTempo(fileInfo["BPM"].as<int>());
+      const int tempoOverride = configuredMidiTempoOverride(
+        fileInfo["BPM"].is<int>(), fileInfo["BPM"].as<int>());
+      if (tempoOverride > 0) {
+        midiFilePlayer.setTempo(tempoOverride);
+      }
       midiFileOutputChannel = fileInfo["Channel"].as<int>();
       playingMidiFile = true;
     }
@@ -423,6 +450,13 @@ void handlePcModeEvent(int switchNo) {
 }
 
 void executeSwitchLogic(int switchNo) {
+  if (!activePresetValid) {
+    if (pcModeOn) {
+      handlePcModeEvent(switchNo);
+    }
+    return;
+  }
+
   JsonObject switchLogic;
 
   switch (switchNo) {
@@ -523,11 +557,14 @@ FLASHMEM void changePreset() {
   currentPreset = clampPresetIndex(currentPreset, presetCount);
 
   if (!applyPresetByIndex(currentPreset)) {
-    showError("Preset load error", "Check JSON / SD card");
+    activePresetValid = false;
+    showError("Preset load error", "Next/Prev to skip");
+    setUiMessageTimeout();
     return;
   }
 
   activePreset = presetDoc;
+  activePresetValid = true;
 
   sendPcArray(activePreset["OnLoad"]["PC"]);
   sendCcArray(activePreset["OnLoad"]["CC"]);
@@ -719,5 +756,3 @@ void loop() {
   servicePresetPrefetch();
   commitPendingEepromWrites();
 }
-
-

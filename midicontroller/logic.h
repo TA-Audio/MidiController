@@ -39,6 +39,11 @@ static constexpr int maxPresetNameLength = 25;
 static constexpr int midiValueMin = 0;
 static constexpr int midiValueMax = 127;
 
+/// Return a positive configured tempo override, or 0 to use the MIDI file tempo.
+inline int configuredMidiTempoOverride(bool tempoIsSet, int tempoBpm) {
+  return tempoIsSet && tempoBpm > 0 ? tempoBpm : 0;
+}
+
 // ── EEPROM addresses ─────────────────────────────────────────────────────────
 
 static constexpr int presetEepromAddress = 0;

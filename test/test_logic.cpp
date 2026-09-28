@@ -34,6 +34,26 @@ TEST(ClampMidi, LargePositive) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ConfiguredMidiTempoOverride
+// ═══════════════════════════════════════════════════════════════════════════════
+
+TEST(ConfiguredMidiTempoOverride, UsesConfiguredPositiveTempo) {
+  EXPECT_EQ(configuredMidiTempoOverride(true, 120), 120);
+}
+
+TEST(ConfiguredMidiTempoOverride, MissingTempoUsesMidiFileTempo) {
+  EXPECT_EQ(configuredMidiTempoOverride(false, 0), 0);
+}
+
+TEST(ConfiguredMidiTempoOverride, ZeroTempoUsesMidiFileTempo) {
+  EXPECT_EQ(configuredMidiTempoOverride(true, 0), 0);
+}
+
+TEST(ConfiguredMidiTempoOverride, NegativeTempoUsesMidiFileTempo) {
+  EXPECT_EQ(configuredMidiTempoOverride(true, -1), 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ExtractNumber
 // ═══════════════════════════════════════════════════════════════════════════════
 
