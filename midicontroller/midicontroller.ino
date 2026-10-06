@@ -34,14 +34,9 @@ bool midiClockEnabled = false;
 uint16_t midiClockTempo = 0;
 uint32_t midiClockIntervalUs = 0;
 uint32_t midiClockNextPulseUs = 0;
-int pcModeProgram = 0;
-bool pcModeOn = false;
-unsigned long longHoldStartMillis;
 bool pendingDisplayRefresh = false;
 bool pendingPresetSave = false;
-bool pendingPcSave = false;
 int pendingPresetValue = 0;
-int pendingPcValue = 0;
 unsigned long eepromDirtyMillis = 0;
 int presetNavigationDirection = 1;
 int prefetchedPresetIndex = -1;
@@ -113,27 +108,13 @@ static inline void queuePresetSave(int value) {
   eepromDirtyMillis = currentMillis;
 }
 
-static inline void queuePcSave(int value) {
-  pendingPcValue = value;
-  pendingPcSave = true;
-  eepromDirtyMillis = currentMillis;
-}
-
 static void commitPendingEepromWrites() {
-  const bool hasPendingWrite = pendingPresetSave || pendingPcSave;
-  if (!hasPendingWrite || !hasElapsed(currentMillis, eepromDirtyMillis, eepromCommitDelayMs)) {
+  if (!pendingPresetSave || !hasElapsed(currentMillis, eepromDirtyMillis, eepromCommitDelayMs)) {
     return;
   }
 
-  if (pendingPresetSave) {
-    EEPROM.put(presetEepromAddress, pendingPresetValue);
-    pendingPresetSave = false;
-  }
-
-  if (pendingPcSave) {
-    EEPROM.put(pcModeEepromAddress, pendingPcValue);
-    pendingPcSave = false;
-  }
+  EEPROM.put(presetEepromAddress, pendingPresetValue);
+  pendingPresetSave = false;
 }
 
 static void servicePresetDisplayRefresh() {
@@ -283,15 +264,7 @@ void setPresetDisplayInfo() {
   const char *sw2 = "";
   const char *sw3 = "";
 
-  if (pcModeOn) {
-    lcd.print("Prog Change Mode");
-    sw1 = "";
-    sw2 = "Down";
-    sw3 = "Up";
-    lcd.setCursor(0, 1);
-    lcd.print("Current PC: ");
-    lcd.print(pcModeProgram);
-  } else if (!activePresetValid) {
+  if (!activePresetValid) {
     displayCenteredLine(0, "Preset load error");
     displayCenteredLine(1, "Next/Prev to skip");
     return;
@@ -373,34 +346,21 @@ void setPresetDisplayInfo() {
 }
 
 static void switchHandler(uint8_t btnId, uint8_t btnState) {
-  if (btnState == BTN_PRESSED) {
-    longHoldStartMillis = currentMillis;
-    if (hasLoaded && btnId <= 3) {
-      executeSwitchLogic(btnId);
-    }
+  const SwitchAction action = classifySwitchEvent(btnId, btnState, hasLoaded);
+
+  if (action == SwitchAction::ExecuteSwitch) {
+    executeSwitchLogic(btnId);
     return;
   }
 
-  // BTN_OPEN — handle nav buttons on release to support long-hold detection
-  if (!hasLoaded) {
-    return;
-  }
-
-  if ((btnId == 4 || btnId == 5) && hasElapsed(currentMillis, longHoldStartMillis, longHoldToggleMs)) {
-    pcModeOn = !pcModeOn;
-    sendProgramChange(pcModeProgram, 1, true);
-    requestPresetDisplayRefresh();
-    return;
-  }
-
-  if (btnId == 4) {
+  if (action == SwitchAction::NavigateNext) {
     presetNavigationDirection = 1;
     if (!canNavigateNext(currentPreset, presetCount)) {
       return;
     }
     currentPreset++;
     changePreset();
-  } else if (btnId == 5) {
+  } else if (action == SwitchAction::NavigatePrev) {
     presetNavigationDirection = -1;
     if (!canNavigatePrev(currentPreset)) {
       return;
@@ -519,18 +479,8 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
   }
 }
 
-void handlePcModeEvent(int switchNo) {
-  pcModeProgram = adjustPcProgram(pcModeProgram, switchNo == 2);
-  sendProgramChange(pcModeProgram, 1, true);
-  queuePcSave(pcModeProgram);
-  requestPresetDisplayRefresh();
-}
-
 void executeSwitchLogic(int switchNo) {
   if (!activePresetValid) {
-    if (pcModeOn) {
-      handlePcModeEvent(switchNo);
-    }
     return;
   }
 
@@ -556,11 +506,6 @@ void executeSwitchLogic(int switchNo) {
       toggleMidiFilePlayback(fileInfo);
       return;
     }
-  }
-
-  if (pcModeOn) {
-    handlePcModeEvent(switchNo);
-    return;
   }
 
   const char *switchName = switchLogic["Name"].as<const char *>();
@@ -606,10 +551,6 @@ void executeSwitchLogic(int switchNo) {
 }
 
 FLASHMEM void changePreset() {
-  if (pcModeOn) {
-    return;
-  }
-
   if (resetPresetDisplay) {
     resetPresetDisplay = false;
   }
@@ -753,11 +694,11 @@ FLASHMEM void setup() {
   delay(1500);
   usbHost.begin();
 
-  pinMode(switch1Pin, INPUT);
-  pinMode(switch2Pin, INPUT);
-  pinMode(switch3Pin, INPUT);
-  pinMode(nextPresetPin, INPUT);
-  pinMode(prevPresetPin, INPUT);
+  pinMode(switch1Pin, INPUT_PULLUP);
+  pinMode(switch2Pin, INPUT_PULLUP);
+  pinMode(switch3Pin, INPUT_PULLUP);
+  pinMode(nextPresetPin, INPUT_PULLUP);
+  pinMode(prevPresetPin, INPUT_PULLUP);
 
   MIDI1.begin(MIDI_CHANNEL_OMNI);
 
@@ -778,15 +719,8 @@ FLASHMEM void setup() {
   loadPresetList();
 
   EEPROM.get(presetEepromAddress, currentPreset);
-  EEPROM.get(pcModeEepromAddress, pcModeProgram);
 
   currentPreset = validateStoredPreset(currentPreset, maxPresetListSize);
-
-  const int validatedPc = validateStoredPcProgram(pcModeProgram);
-  if (validatedPc != pcModeProgram) {
-    pcModeProgram = validatedPc;
-    queuePcSave(pcModeProgram);
-  }
 
   startMillis = millis();
 }

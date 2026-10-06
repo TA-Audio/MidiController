@@ -196,13 +196,6 @@ TEST(HasElapsed, UnsignedOverflowNotYetElapsed) {
   EXPECT_FALSE(hasElapsed(current, start, 100));
 }
 
-TEST(HasElapsed, LongHoldThreshold) {
-  // Real-world: long hold of 3000ms
-  EXPECT_FALSE(hasElapsed(2999, 0, longHoldToggleMs));
-  EXPECT_TRUE(hasElapsed(3000, 0, longHoldToggleMs));
-  EXPECT_TRUE(hasElapsed(5000, 0, longHoldToggleMs));
-}
-
 TEST(HasElapsed, EepromCommitDelay) {
   EXPECT_FALSE(hasElapsed(199, 0, eepromCommitDelayMs));
   EXPECT_TRUE(hasElapsed(200, 0, eepromCommitDelayMs));
@@ -335,44 +328,6 @@ TEST(CanNavigatePrev, SecondPreset) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AdjustPcProgram
-// ═══════════════════════════════════════════════════════════════════════════════
-
-TEST(AdjustPcProgram, IncrementFromZero) {
-  EXPECT_EQ(adjustPcProgram(0, false), 1);
-}
-
-TEST(AdjustPcProgram, IncrementMidRange) {
-  EXPECT_EQ(adjustPcProgram(63, false), 64);
-}
-
-TEST(AdjustPcProgram, IncrementAtMax) {
-  // 127 + 1 = 128 → clamped to 127
-  EXPECT_EQ(adjustPcProgram(127, false), 127);
-}
-
-TEST(AdjustPcProgram, IncrementNearMax) {
-  EXPECT_EQ(adjustPcProgram(126, false), 127);
-}
-
-TEST(AdjustPcProgram, DecrementFromMax) {
-  EXPECT_EQ(adjustPcProgram(127, true), 126);
-}
-
-TEST(AdjustPcProgram, DecrementMidRange) {
-  EXPECT_EQ(adjustPcProgram(64, true), 63);
-}
-
-TEST(AdjustPcProgram, DecrementAtZero) {
-  // Already at 0, can't go lower
-  EXPECT_EQ(adjustPcProgram(0, true), 0);
-}
-
-TEST(AdjustPcProgram, DecrementFromOne) {
-  EXPECT_EQ(adjustPcProgram(1, true), 0);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // Constants validation
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -397,15 +352,11 @@ TEST(Constants, PresetLimits) {
 TEST(Constants, TimingValues) {
   EXPECT_EQ(initialLoadDelayMs, 1000UL);
   EXPECT_EQ(switchDisplayPeriodMs, 1500UL);
-  EXPECT_EQ(longHoldToggleMs, 3000UL);
   EXPECT_EQ(eepromCommitDelayMs, 200UL);
 }
 
 TEST(Constants, EepromAddresses) {
   EXPECT_EQ(presetEepromAddress, 0);
-  EXPECT_EQ(pcModeEepromAddress, 1000);
-  // Ensure addresses don't overlap (preset stores an int = 4 bytes)
-  EXPECT_GT(pcModeEepromAddress, presetEepromAddress + (int)sizeof(int));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -481,34 +432,6 @@ TEST(ValidateStoredPreset, AboveMaxReturnsZero) {
 TEST(ValidateStoredPreset, CorruptedLargeValueReturnsZero) {
   // Simulates uninitialized EEPROM (0xFFFF... = large negative or positive)
   EXPECT_EQ(validateStoredPreset(0x7FFFFFFF, 150), 0);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// ValidateStoredPcProgram (EEPROM validation — new on branch)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-TEST(ValidateStoredPcProgram, ValidZero) {
-  EXPECT_EQ(validateStoredPcProgram(0), 0);
-}
-
-TEST(ValidateStoredPcProgram, ValidMidRange) {
-  EXPECT_EQ(validateStoredPcProgram(64), 64);
-}
-
-TEST(ValidateStoredPcProgram, ValidMax) {
-  EXPECT_EQ(validateStoredPcProgram(127), 127);
-}
-
-TEST(ValidateStoredPcProgram, NegativeReturnsZero) {
-  EXPECT_EQ(validateStoredPcProgram(-1), 0);
-}
-
-TEST(ValidateStoredPcProgram, AboveMaxReturnsZero) {
-  EXPECT_EQ(validateStoredPcProgram(128), 0);
-}
-
-TEST(ValidateStoredPcProgram, LargeCorruptedValue) {
-  EXPECT_EQ(validateStoredPcProgram(65535), 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -170,132 +170,52 @@ TEST_F(DebounceTest, UpdateReturnsFalseWhenNoChange) {
 
 class SwitchHandlerTest : public ::testing::Test {};
 
-// --- BTN_PRESSED on switch buttons (1-3) ---
-
-TEST_F(SwitchHandlerTest, PressButton1WhenLoaded) {
-  auto action = classifySwitchEvent(1, BTN_STATE_PRESSED, true, false);
-  EXPECT_EQ(action, SwitchAction::ExecuteSwitch);
+TEST_F(SwitchHandlerTest, SwitchButtonsExecuteOnPressOnly) {
+  for (uint8_t btnId : {1, 2, 3}) {
+    EXPECT_EQ(classifySwitchEvent(btnId, BTN_STATE_PRESSED, true), SwitchAction::ExecuteSwitch);
+    EXPECT_EQ(classifySwitchEvent(btnId, BTN_STATE_OPEN, true), SwitchAction::None);
+  }
 }
 
-TEST_F(SwitchHandlerTest, PressButton2WhenLoaded) {
-  auto action = classifySwitchEvent(2, BTN_STATE_PRESSED, true, false);
-  EXPECT_EQ(action, SwitchAction::ExecuteSwitch);
+TEST_F(SwitchHandlerTest, NavigationButtonsNavigateOnReleaseOnly) {
+  for (uint8_t btnId : {4, 5}) {
+    EXPECT_EQ(classifySwitchEvent(btnId, BTN_STATE_PRESSED, true), SwitchAction::None);
+    EXPECT_EQ(classifySwitchEvent(btnId, BTN_STATE_OPEN, true),
+              btnId == 4 ? SwitchAction::NavigateNext : SwitchAction::NavigatePrev);
+  }
 }
 
-TEST_F(SwitchHandlerTest, PressButton3WhenLoaded) {
-  auto action = classifySwitchEvent(3, BTN_STATE_PRESSED, true, false);
-  EXPECT_EQ(action, SwitchAction::ExecuteSwitch);
+TEST_F(SwitchHandlerTest, AllButtonsIgnoredBeforeLoaded) {
+  for (uint8_t btnId : {1, 2, 3, 4, 5}) {
+    EXPECT_EQ(classifySwitchEvent(btnId, BTN_STATE_PRESSED, false), SwitchAction::None);
+    EXPECT_EQ(classifySwitchEvent(btnId, BTN_STATE_OPEN, false), SwitchAction::None);
+  }
 }
 
-TEST_F(SwitchHandlerTest, PressButton1NotLoaded) {
-  auto action = classifySwitchEvent(1, BTN_STATE_PRESSED, false, false);
-  EXPECT_EQ(action, SwitchAction::None);
+TEST_F(SwitchHandlerTest, InvalidButtonsAndStatesIgnored) {
+  for (uint8_t btnId : {0, 6, 255}) {
+    EXPECT_EQ(classifySwitchEvent(btnId, BTN_STATE_PRESSED, true), SwitchAction::None);
+    EXPECT_EQ(classifySwitchEvent(btnId, BTN_STATE_OPEN, true), SwitchAction::None);
+  }
+  for (uint8_t btnId : {1, 2, 3, 4, 5}) {
+    EXPECT_EQ(classifySwitchEvent(btnId, 2, true), SwitchAction::None);
+  }
 }
 
-TEST_F(SwitchHandlerTest, PressButton2NotLoaded) {
-  auto action = classifySwitchEvent(2, BTN_STATE_PRESSED, false, false);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-TEST_F(SwitchHandlerTest, PressButton3NotLoaded) {
-  auto action = classifySwitchEvent(3, BTN_STATE_PRESSED, false, false);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-// --- BTN_PRESSED on nav buttons (4-5) ---
-
-TEST_F(SwitchHandlerTest, PressButton4RecordsHoldStart) {
-  auto action = classifySwitchEvent(4, BTN_STATE_PRESSED, true, false);
-  EXPECT_EQ(action, SwitchAction::RecordHoldStart);
-}
-
-TEST_F(SwitchHandlerTest, PressButton5RecordsHoldStart) {
-  auto action = classifySwitchEvent(5, BTN_STATE_PRESSED, true, false);
-  EXPECT_EQ(action, SwitchAction::RecordHoldStart);
-}
-
-TEST_F(SwitchHandlerTest, PressNavButtonRecordsEvenWhenNotLoaded) {
-  // The firmware records longHoldStartMillis regardless of hasLoaded
-  auto action = classifySwitchEvent(4, BTN_STATE_PRESSED, false, false);
-  EXPECT_EQ(action, SwitchAction::RecordHoldStart);
-}
-
-// --- BTN_OPEN (release) on nav buttons — short press ---
-
-TEST_F(SwitchHandlerTest, ReleaseButton4ShortPressNavigatesNext) {
-  auto action = classifySwitchEvent(4, BTN_STATE_OPEN, true, false);
-  EXPECT_EQ(action, SwitchAction::NavigateNext);
-}
-
-TEST_F(SwitchHandlerTest, ReleaseButton5ShortPressNavigatesPrev) {
-  auto action = classifySwitchEvent(5, BTN_STATE_OPEN, true, false);
-  EXPECT_EQ(action, SwitchAction::NavigatePrev);
-}
-
-// --- BTN_OPEN (release) on nav buttons — long hold ---
-
-TEST_F(SwitchHandlerTest, ReleaseButton4LongHoldTogglesPcMode) {
-  auto action = classifySwitchEvent(4, BTN_STATE_OPEN, true, true);
-  EXPECT_EQ(action, SwitchAction::TogglePcMode);
-}
-
-TEST_F(SwitchHandlerTest, ReleaseButton5LongHoldTogglesPcMode) {
-  auto action = classifySwitchEvent(5, BTN_STATE_OPEN, true, true);
-  EXPECT_EQ(action, SwitchAction::TogglePcMode);
-}
-
-// --- BTN_OPEN before loaded ---
-
-TEST_F(SwitchHandlerTest, ReleaseButton4NotLoadedNoAction) {
-  auto action = classifySwitchEvent(4, BTN_STATE_OPEN, false, false);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-TEST_F(SwitchHandlerTest, ReleaseButton5NotLoadedNoAction) {
-  auto action = classifySwitchEvent(5, BTN_STATE_OPEN, false, false);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-TEST_F(SwitchHandlerTest, ReleaseButton4NotLoadedLongHoldNoAction) {
-  auto action = classifySwitchEvent(4, BTN_STATE_OPEN, false, true);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-// --- Release on switch buttons (1-3) does nothing ---
-
-TEST_F(SwitchHandlerTest, ReleaseButton1NoAction) {
-  auto action = classifySwitchEvent(1, BTN_STATE_OPEN, true, false);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-TEST_F(SwitchHandlerTest, ReleaseButton2NoAction) {
-  auto action = classifySwitchEvent(2, BTN_STATE_OPEN, true, false);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-TEST_F(SwitchHandlerTest, ReleaseButton3NoAction) {
-  auto action = classifySwitchEvent(3, BTN_STATE_OPEN, true, false);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-// --- Invalid button IDs ---
-
-TEST_F(SwitchHandlerTest, PressButton0NoAction) {
-  auto action = classifySwitchEvent(0, BTN_STATE_PRESSED, true, false);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-TEST_F(SwitchHandlerTest, PressButton6NoAction) {
-  auto action = classifySwitchEvent(6, BTN_STATE_PRESSED, true, false);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-TEST_F(SwitchHandlerTest, ReleaseButton0NoAction) {
-  auto action = classifySwitchEvent(0, BTN_STATE_OPEN, true, false);
-  EXPECT_EQ(action, SwitchAction::None);
-}
-
-TEST_F(SwitchHandlerTest, ReleaseButton6NoAction) {
-  auto action = classifySwitchEvent(6, BTN_STATE_OPEN, true, false);
-  EXPECT_EQ(action, SwitchAction::None);
+TEST_F(SwitchHandlerTest, ShortAndLongNavigationHoldsBothNavigateOnce) {
+  for (uint8_t btnId : {4, 5}) {
+    for (unsigned long duration : {100UL, 3000UL, 10000UL}) {
+      DebounceState button;
+      button.init();
+      button.update(BTN_STATE_PRESSED, 10000);
+      ASSERT_TRUE(button.update(BTN_STATE_PRESSED, 10026));
+      EXPECT_EQ(classifySwitchEvent(btnId, button.currentState, true), SwitchAction::None);
+      EXPECT_FALSE(button.update(BTN_STATE_PRESSED, 10026 + duration));
+      button.update(BTN_STATE_OPEN, 10026 + duration);
+      ASSERT_TRUE(button.update(BTN_STATE_OPEN, 10052 + duration));
+      EXPECT_EQ(classifySwitchEvent(btnId, button.currentState, true),
+                btnId == 4 ? SwitchAction::NavigateNext : SwitchAction::NavigatePrev);
+      EXPECT_FALSE(button.update(BTN_STATE_OPEN, 10078 + duration));
+    }
+  }
 }

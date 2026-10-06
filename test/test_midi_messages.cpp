@@ -58,13 +58,6 @@ static bool executeSwitchPress(JsonObject switchLogic, bool wasToggled) {
   return wasToggled;
 }
 
-/// Simulates handlePcModeEvent: adjust PC program and send.
-static int handlePcModePress(int currentProgram, int switchNo) {
-  int newProgram = adjustPcProgram(currentProgram, switchNo == 2);
-  sendProgramChange(newProgram, 1, true);
-  return newProgram;
-}
-
 /// Simulates changePreset OnLoad: sends PC and CC arrays from preset OnLoad.
 static void processPresetOnLoad(JsonObject preset) {
   sendPcArray(preset["OnLoad"]["PC"]);
@@ -377,86 +370,6 @@ TEST_F(MidiMessageTest, SwitchPress_Toggle_WithPc_BothSent) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// PC Mode — up/down buttons send program change
-// ═══════════════════════════════════════════════════════════════════════════════
-
-TEST_F(MidiMessageTest, PcMode_IncrementFromZero) {
-  int program = handlePcModePress(0, 3);  // switchNo != 2 → increment
-
-  EXPECT_EQ(program, 1);
-  ASSERT_EQ(midiLog().size(), 1u);
-  EXPECT_EQ(midiLog()[0].type, MidiMessage::ProgramChange);
-  EXPECT_EQ(midiLog()[0].value1, 1);
-  EXPECT_EQ(midiLog()[0].channel, 1);
-  EXPECT_TRUE(midiLog()[0].usb);
-}
-
-TEST_F(MidiMessageTest, PcMode_DecrementFromOne) {
-  int program = handlePcModePress(1, 2);  // switchNo == 2 → decrement
-
-  EXPECT_EQ(program, 0);
-  ASSERT_EQ(midiLog().size(), 1u);
-  EXPECT_EQ(midiLog()[0].value1, 0);
-  EXPECT_TRUE(midiLog()[0].usb);
-}
-
-TEST_F(MidiMessageTest, PcMode_IncrementAtMax_Clamped) {
-  int program = handlePcModePress(127, 1);  // increment from 127
-
-  EXPECT_EQ(program, 127);  // clamped
-  ASSERT_EQ(midiLog().size(), 1u);
-  EXPECT_EQ(midiLog()[0].value1, 127);
-}
-
-TEST_F(MidiMessageTest, PcMode_DecrementAtZero_Stays) {
-  int program = handlePcModePress(0, 2);  // decrement from 0
-
-  EXPECT_EQ(program, 0);
-  ASSERT_EQ(midiLog().size(), 1u);
-  EXPECT_EQ(midiLog()[0].value1, 0);
-}
-
-TEST_F(MidiMessageTest, PcMode_MultipleIncrements) {
-  int program = 0;
-  for (int i = 0; i < 5; i++) {
-    clearMidiLog();
-    program = handlePcModePress(program, 3);
-  }
-  EXPECT_EQ(program, 5);
-  ASSERT_EQ(midiLog().size(), 1u);
-  EXPECT_EQ(midiLog()[0].value1, 5);
-}
-
-TEST_F(MidiMessageTest, PcMode_IncrementThenDecrement) {
-  int program = 64;
-  clearMidiLog();
-  program = handlePcModePress(program, 1);  // increment
-  EXPECT_EQ(program, 65);
-  EXPECT_EQ(midiLog()[0].value1, 65);
-
-  clearMidiLog();
-  program = handlePcModePress(program, 2);  // decrement
-  EXPECT_EQ(program, 64);
-  EXPECT_EQ(midiLog()[0].value1, 64);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Long-hold toggle — PC mode activation sends current PC program
-// ═══════════════════════════════════════════════════════════════════════════════
-
-TEST_F(MidiMessageTest, PcModeToggle_SendsCurrentProgram) {
-  // When PC mode is toggled via long hold, the current pcModeProgram is sent
-  int pcModeProgram = 42;
-  sendProgramChange(pcModeProgram, 1, true);
-
-  ASSERT_EQ(midiLog().size(), 1u);
-  EXPECT_EQ(midiLog()[0].type, MidiMessage::ProgramChange);
-  EXPECT_EQ(midiLog()[0].value1, 42);
-  EXPECT_EQ(midiLog()[0].channel, 1);
-  EXPECT_TRUE(midiLog()[0].usb);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // Value clamping — out-of-range values in JSON are safely clamped
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -607,27 +520,6 @@ TEST_F(MidiMessageTest, FullScenario_NavigateBetweenPresets) {
   EXPECT_EQ(midiLog()[1].type, MidiMessage::ControlChange);
   EXPECT_EQ(midiLog()[1].value1, 80);
   EXPECT_EQ(midiLog()[1].value2, 100);
-}
-
-TEST_F(MidiMessageTest, FullScenario_PcModeUpDown) {
-  // Enter PC mode (simulated by long hold), then press up/down
-  int program = 0;
-
-  // Press switch 3 (up) 5 times
-  for (int i = 0; i < 5; i++) {
-    clearMidiLog();
-    program = handlePcModePress(program, 3);
-  }
-  EXPECT_EQ(program, 5);
-
-  // Press switch 2 (down) 2 times
-  for (int i = 0; i < 2; i++) {
-    clearMidiLog();
-    program = handlePcModePress(program, 2);
-  }
-  EXPECT_EQ(program, 3);
-  ASSERT_EQ(midiLog().size(), 1u);
-  EXPECT_EQ(midiLog()[0].value1, 3);
 }
 
 TEST_F(MidiMessageTest, FullScenario_TogglesResetOnPresetChange) {

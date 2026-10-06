@@ -21,7 +21,6 @@ static constexpr int prevPresetPin = 6;
 
 static constexpr unsigned long initialLoadDelayMs = 1000;
 static constexpr unsigned long switchDisplayPeriodMs = 1500;
-static constexpr unsigned long longHoldToggleMs = 3000;
 static constexpr unsigned long eepromCommitDelayMs = 200;
 
 // ── Display ──────────────────────────────────────────────────────────────────
@@ -52,7 +51,6 @@ inline uint32_t midiClockIntervalForTempo(uint16_t tempo) {
 // ── EEPROM addresses ─────────────────────────────────────────────────────────
 
 static constexpr int presetEepromAddress = 0;
-static constexpr int pcModeEepromAddress = 1000;
 
 // ── Pure logic functions ─────────────────────────────────────────────────────
 
@@ -118,27 +116,11 @@ inline bool canNavigatePrev(int currentPreset) {
   return currentPreset > 0;
 }
 
-/// Increment or decrement a PC program number, clamping to 0–127.
-inline int adjustPcProgram(int currentProgram, bool decrement) {
-  if (decrement) {
-    if (currentProgram >= 1) currentProgram--;
-  } else {
-    currentProgram++;
-  }
-  return clampMidi(currentProgram);
-}
-
 // ── EEPROM validation ────────────────────────────────────────────────────────
 
 /// Validate a preset index read from EEPROM.  Returns 0 if out of range.
 inline int validateStoredPreset(int value, int maxPresets) {
   if (value < 0 || value >= maxPresets) return 0;
-  return value;
-}
-
-/// Validate a PC program value read from EEPROM.  Returns 0 if out of MIDI range.
-inline int validateStoredPcProgram(int value) {
-  if (value < midiValueMin || value > midiValueMax) return 0;
   return value;
 }
 
@@ -271,36 +253,25 @@ struct DebounceState {
 enum class SwitchAction {
   None,               // no action (not loaded, or invalid)
   ExecuteSwitch,      // fire switch logic for button 1/2/3
-  TogglePcMode,       // long-hold on nav button toggled PC mode
-  NavigateNext,       // short press on next preset button
-  NavigatePrev,       // short press on prev preset button
-  RecordHoldStart     // BTN_PRESSED on nav button — just record timestamp
+  NavigateNext,       // next preset button released
+  NavigatePrev        // prev preset button released
 };
 
 /// Determine what action to take given a button event.
 /// `btnId`: 1–5, `btnState`: BTN_STATE_PRESSED or BTN_STATE_OPEN
 /// `hasLoaded`: whether initial load is complete
-/// `longHoldElapsed`: whether the long-hold threshold was reached
 inline SwitchAction classifySwitchEvent(uint8_t btnId, uint8_t btnState,
-                                        bool hasLoaded, bool longHoldElapsed) {
+                                        bool hasLoaded) {
+  if (!hasLoaded) return SwitchAction::None;
+
   if (btnState == BTN_STATE_PRESSED) {
-    if (hasLoaded && btnId >= 1 && btnId <= 3) {
+    if (btnId >= 1 && btnId <= 3) {
       return SwitchAction::ExecuteSwitch;
     }
-    if (btnId == 4 || btnId == 5) {
-      return SwitchAction::RecordHoldStart;
-    }
     return SwitchAction::None;
   }
 
-  // BTN_STATE_OPEN (release)
-  if (!hasLoaded) {
-    return SwitchAction::None;
-  }
-
-  if ((btnId == 4 || btnId == 5) && longHoldElapsed) {
-    return SwitchAction::TogglePcMode;
-  }
+  if (btnState != BTN_STATE_OPEN) return SwitchAction::None;
 
   if (btnId == 4) {
     return SwitchAction::NavigateNext;
@@ -311,3 +282,4 @@ inline SwitchAction classifySwitchEvent(uint8_t btnId, uint8_t btnState,
 
   return SwitchAction::None;
 }
+

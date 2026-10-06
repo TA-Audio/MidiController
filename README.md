@@ -8,6 +8,7 @@ A feature-rich MIDI foot controller built on the **Teensy 4.1** platform. Design
 - Presets are stored as individual `.json` files on a micro-SD card.
 - Up to **150 presets** are loaded at boot, sorted numerically by filename (e.g. `1.json`, `2.json`, …).
 - Navigate presets with dedicated **Next / Previous** foot switches.
+- Navigation happens on release, regardless of how long the switch is held.
 - The active preset index is saved to EEPROM so the controller remembers its position across power cycles.
 - Presets are prefetched in the direction of navigation for instant loading.
 - Invalid preset JSON displays an error; use **Next / Previous** to skip the preset.
@@ -32,24 +33,17 @@ Each preset can define `OnLoad` PC and CC messages that are sent automatically w
 - Set `FileInfo.SendMidiClock` to `true` to send MIDI Start, 24-PPQN Clock pulses, and MIDI Stop over DIN MIDI OUT during playback. The pulse rate follows the tempo currently used by the MIDI file player.
 - Optional `StopCC` array to send CC messages when playback stops (e.g. silence a looper).
 
-### Program Change (PC) Mode
-- Long-hold either navigation switch for 3 seconds to enter **PC Mode**.
-- In PC Mode, Switch 2 and Switch 3 step through program numbers (0–127).
-- Every PC change is sent over USB MIDI and the current program number is persisted to EEPROM.
-- Long-hold again to exit back to preset mode.
-
 ### MIDI I/O
 | Port | Direction | Purpose |
 |---|---|---|
-| **Serial1 (DIN MIDI OUT)** | Output | Preset and PC Mode messages, MIDI file events, and optional MIDI clock. |
+| **Serial1 (DIN MIDI OUT)** | Output | Preset messages, MIDI file events, and optional MIDI clock. |
 | **Serial2 (DIN MIDI IN 1)** | Input | Passes through to Serial1 (MIDI merge). |
 | **Serial3 (DIN MIDI IN 2)** | Input | Passes through to Serial1 (MIDI merge). |
 | **USB Host MIDI** | Output | PC and CC messages when `"USB": true` in the preset. |
 
 ### Display
 - **20×4 I2C LCD** (address `0x27`).
-- Row 0: Preset name (or "Prog Change Mode").
-- Row 1: Contextual info (current PC number in PC Mode).
+- Row 0: Preset name.
 - Row 2: Toggle indicators (`*` per switch when toggled on).
 - Row 3: Switch labels from the preset JSON.
 - Temporary overlay messages (e.g. "DIST On!") display for 1.5 seconds then return to the preset view.
