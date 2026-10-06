@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and Run Unit Tests
+        run: |
+          cd test
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+          cd build && ctest --output-on-failure
+
+  compile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Configure Arduino CLI
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config set board_manager.additional_urls https://www.pjrc.com/teensy/package_teensy_index.json
+          arduino-cli config set library.enable_unsafe_install true
+
+      - name: Install Teensy Core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install teensy:avr
+
+      - name: Install Libraries from Arduino Library Manager
+        run: |
+          arduino-cli lib update-index
+          arduino-cli lib install "ArduinoJson@6.21.5"
+          arduino-cli lib install "MIDI Library"
+          arduino-cli lib install "LiquidCrystal I2C"
+          arduino-cli lib install "MD_MIDIFile"
+
+      - name: Patch MD_MIDIFile for SdFat (Teensy)
+        # MD_MIDIFile v2.6.0 unconditionally uses 'typedef File SDDIR/SDFILE'.
+        # Teensy's SD library is SdFat-based and doesn't expose the Arduino 'File' type,
+        # but 'SdFile' is available. Replace the typedef so the library compiles on Teensy.
+        run: |
+          CONFIG="$HOME/Arduino/libraries/MD_MIDIFile/src/MD_MIDIFile.h"
+          echo "=== typedef before patch ==="
+          grep -n "typedef File SD" "$CONFIG" || echo "(no match yet)"
+          sed -i 's/typedef File SDDIR;/typedef SdFile SDDIR;/; s/typedef File SDFILE;/typedef SdFile SDFILE;/' "$CONFIG"
+          echo "=== typedef after patch ==="
+          grep -n "typedef.*SD" "$CONFIG" || echo "(no match)"
+
+      - name: Install debounce library from git
+        # kimballa/button-debounce: provides debounce.h with Button(id, callback),
+        # BTN_PRESSED/BTN_OPEN constants, and update(bool). Not in Arduino Library Manager.
+        run: |
+          arduino-cli lib install --git-url https://github.com/kimballa/button-debounce.git
+
+      - name: Compile Teensy 4.1 Firmware
+        run: |
+          arduino-cli compile \
+            --fqbn teensy:avr:teensy41 \
+            --warnings all \
+            midicontroller/midicontroller.ino

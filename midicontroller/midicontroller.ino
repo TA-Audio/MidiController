@@ -6,51 +6,250 @@
 #include <SD.h>
 #include "USBHost_t36.h"
 #include <MD_MIDIFile.h>
+#include <stdlib.h>
+#include <string.h>
+#include "logic.h"
 
-static constexpr int switch1 = 2;
-static constexpr int switch2 = 3;
-static constexpr int switch3 = 4;
-static constexpr int nextPreset = 5;
-static constexpr int prevPreset = 6;
 bool hasLoaded = false;
-bool switchOneToggled = false;
-bool switchTwoToggled = false;
-bool switchThreeToggled = false;
+bool switchToggled[switchCount] = {};
 unsigned long startMillis;
 unsigned long currentMillis;
-const unsigned long period = 1000;
-const unsigned long switchDisplayPeriod = 1500;
+unsigned long switchDisplayStartMillis = 0;
 bool resetPresetDisplay = false;
-LiquidCrystal_I2C lcd(0x27, 20, 4);  // I2C address 0x27, 20 column and 4 rows
-JsonVariant preset;
+LiquidCrystal_I2C lcd(0x27, 20, 4);  // I2C address 0x27, 20 columns and 4 rows
+JsonVariant activePreset;
+bool activePresetValid = false;
 int currentPreset = 0;
-int numPrograms = 0;
-const int maxListSize = 150;     // Maximum number of words
-const int maxStringLength = 25;  // Maximum length of each word
-char presetList[maxListSize][maxStringLength];
-DynamicJsonDocument doc(1024);
-int address = 0;
-int pcAddress = 1000;
-int currentIndex = 0;
-FsFile dir;
-FsFile file;
-MD_MIDIFile SMF;
-int midiFileChannel;
+int presetCount = 0;
+DMAMEM char presetList[maxPresetListSize][maxPresetNameLength];
+DMAMEM StaticJsonDocument<4096> presetDoc;
+FsFile rootDir;
+FsFile sdFile;
+MD_MIDIFile midiFilePlayer;
+int midiFileOutputChannel;
 bool playingMidiFile = false;
 bool stoppingMidiFile = false;
-int pcModePCValue = 0;
-bool pcModeOn = false;
-unsigned long longHoldStartMillis;
-
+bool midiFileLoaded = false;
+bool midiClockEnabled = false;
+uint16_t midiClockTempo = 0;
+uint32_t midiClockIntervalUs = 0;
+uint32_t midiClockNextPulseUs = 0;
+bool pendingDisplayRefresh = false;
+bool pendingPresetSave = false;
+int pendingPresetValue = 0;
+unsigned long eepromDirtyMillis = 0;
+int presetNavigationDirection = 1;
+int prefetchedPresetIndex = -1;
+int prefetchTargetIndex = -1;
+bool prefetchRequested = false;
+DMAMEM StaticJsonDocument<4096> prefetchedPresetDoc;
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI1);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, MIDI2);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial3, MIDI3);
 
 USBHost usbHost;
-MIDIDevice USBMIDI(usbHost);
+MIDIDevice usbMidiDevice(usbHost);
 
-void ShowError(const char *errorMessageLine1, const char *errorMessageLine2) {
+bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<4096> &targetDoc);
+bool applyPresetByIndex(int presetIndex);
+void queueDirectionalPresetPrefetch();
+void servicePresetPrefetch();
+void changePreset();
+void executeSwitchLogic(int switchNo);
+void setPresetDisplayInfo();
+void showError(const char *errorMessageLine1, const char *errorMessageLine2);
+
+static inline void sendProgramChange(int pcValue, int channel, bool usbEvent) {
+  const int safePc = clampMidi(pcValue);
+  if (usbEvent) {
+    usbMidiDevice.sendProgramChange(safePc, channel);
+  } else {
+    MIDI1.sendProgramChange(safePc, channel);
+  }
+}
+
+static inline void sendControlChange(int ccNumber, int ccValue, int channel, bool usbEvent) {
+  const int safeCcNumber = clampMidi(ccNumber);
+  const int safeCcValue = clampMidi(ccValue);
+  if (usbEvent) {
+    usbMidiDevice.sendControlChange(safeCcNumber, safeCcValue, channel);
+  } else {
+    MIDI1.sendControlChange(safeCcNumber, safeCcValue, channel);
+  }
+}
+
+static void sendPcArray(JsonArray pcArray) {
+  if (pcArray.isNull()) return;
+  for (JsonVariant pcEvent : pcArray) {
+    sendProgramChange(pcJsonToMidi(pcEvent["PC"].as<int>()), pcEvent["Channel"], pcEvent["USB"]);
+  }
+}
+
+static void sendCcArray(JsonArray ccArray) {
+  if (ccArray.isNull()) return;
+  for (JsonVariant ccEvent : ccArray) {
+    sendControlChange(ccEvent["CC"], ccEvent["Value"], ccEvent["Channel"], ccEvent["USB"]);
+  }
+}
+
+static void setUiMessageTimeout() {
+  switchDisplayStartMillis = currentMillis;
+  resetPresetDisplay = true;
+}
+
+static inline void requestPresetDisplayRefresh() {
+  pendingDisplayRefresh = true;
+}
+
+static inline void queuePresetSave(int value) {
+  pendingPresetValue = value;
+  pendingPresetSave = true;
+  eepromDirtyMillis = currentMillis;
+}
+
+static void commitPendingEepromWrites() {
+  if (!pendingPresetSave || !hasElapsed(currentMillis, eepromDirtyMillis, eepromCommitDelayMs)) {
+    return;
+  }
+
+  EEPROM.put(presetEepromAddress, pendingPresetValue);
+  pendingPresetSave = false;
+}
+
+static void servicePresetDisplayRefresh() {
+  if (!pendingDisplayRefresh || resetPresetDisplay) {
+    return;
+  }
+
+  pendingDisplayRefresh = false;
+  setPresetDisplayInfo();
+}
+
+static void serviceMidiPassthrough() {
+  while (MIDI2.read()) {
+    MIDI1.send(MIDI2.getType(),
+               MIDI2.getData1(),
+               MIDI2.getData2(),
+               MIDI2.getChannel());
+  }
+
+  while (MIDI3.read()) {
+    MIDI1.send(MIDI3.getType(),
+               MIDI3.getData1(),
+               MIDI3.getData2(),
+               MIDI3.getChannel());
+  }
+}
+
+FLASHMEM bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<4096> &targetDoc) {
+  if (presetIndex < 0 || presetIndex >= presetCount) {
+    return false;
+  }
+
+  const char *fileName = presetList[presetIndex];
+  if (!sdFile.open(fileName, O_READ)) {
+    targetDoc.clear();
+    return false;
+  }
+
+  targetDoc.clear();
+  DeserializationError error = deserializeJson(targetDoc, sdFile);
+  sdFile.close();
+
+  if (error || !targetDoc.is<JsonObject>()) {
+    targetDoc.clear();
+    return false;
+  }
+
+  return true;
+}
+
+bool applyPresetByIndex(int presetIndex) {
+  if (prefetchedPresetIndex == presetIndex) {
+    presetDoc.clear();
+    presetDoc.set(prefetchedPresetDoc.as<JsonVariantConst>());
+    prefetchedPresetDoc.clear();
+    prefetchedPresetIndex = -1;
+    return true;
+  }
+
+  prefetchedPresetIndex = -1;
+  if (!loadPresetDocumentByIndex(presetIndex, prefetchedPresetDoc)) {
+    return false;
+  }
+
+  presetDoc.clear();
+  presetDoc.set(prefetchedPresetDoc.as<JsonVariantConst>());
+  prefetchedPresetDoc.clear();
+  return true;
+}
+
+void queueDirectionalPresetPrefetch() {
+  int candidateIndex = computePrefetchCandidate(currentPreset, presetCount,
+                                                  presetNavigationDirection, prefetchedPresetIndex);
+  if (candidateIndex < 0) {
+    prefetchRequested = false;
+    prefetchTargetIndex = -1;
+    if (presetCount <= 1) {
+      prefetchedPresetIndex = -1;
+      prefetchedPresetDoc.clear();
+    }
+    return;
+  }
+
+  prefetchTargetIndex = candidateIndex;
+  prefetchRequested = true;
+}
+
+void servicePresetPrefetch() {
+  if (!prefetchRequested || prefetchTargetIndex < 0 || prefetchTargetIndex >= presetCount) {
+    return;
+  }
+
+  if (loadPresetDocumentByIndex(prefetchTargetIndex, prefetchedPresetDoc)) {
+    prefetchedPresetIndex = prefetchTargetIndex;
+  } else {
+    prefetchedPresetIndex = -1;
+  }
+
+  prefetchRequested = false;
+  prefetchTargetIndex = -1;
+}
+
+FLASHMEM static void displayCenteredLine(int row, const char *text) {
+  if (text == nullptr) {
+    return;
+  }
+
+  const int textLength = (int)strlen(text);
+  const int safeLength = textLength > lcdColumnCount ? lcdColumnCount : textLength;
+  const int padding = calculateCenterPadding(textLength);
+
+  lcd.setCursor(0, row);
+  for (int i = 0; i < padding; i++) {
+    lcd.print(' ');
+  }
+  for (int i = 0; i < safeLength; i++) {
+    lcd.print(text[i]);
+  }
+  for (int i = padding + safeLength; i < lcdColumnCount; i++) {
+    lcd.print(' ');
+  }
+}
+
+FLASHMEM static void showSwitchActionMessage(const char *text, const char *suffix) {
+  char lineBuffer[uiTextBufferLength];
+  if (!formatSwitchActionMessage(text, suffix, lineBuffer, sizeof(lineBuffer))) {
+    return;
+  }
+
+  lcd.clear();
+  displayCenteredLine(1, lineBuffer);
+  setUiMessageTimeout();
+}
+
+FLASHMEM void showError(const char *errorMessageLine1, const char *errorMessageLine2) {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(errorMessageLine1);
@@ -58,25 +257,21 @@ void ShowError(const char *errorMessageLine1, const char *errorMessageLine2) {
   lcd.print(errorMessageLine2);
 }
 
-void SetPresetDisplayInfo() {
+void setPresetDisplayInfo() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  const char *sw1;
-  const char *sw2;
-  const char *sw3;
+  const char *sw1 = "";
+  const char *sw2 = "";
+  const char *sw3 = "";
 
-  if (pcModeOn) {
-    lcd.print("Prog Change Mode");
-    sw1 = "";
-    sw2 = "Down";
-    sw3 = "Up";
-    lcd.setCursor(0, 1);
-    lcd.print("Current PC: ");
-    lcd.print(pcModePCValue);
+  if (!activePresetValid) {
+    displayCenteredLine(0, "Preset load error");
+    displayCenteredLine(1, "Next/Prev to skip");
+    return;
   } else {
-    lcd.print(preset["Name"].as<const char *>());  // print message at the second row
+    lcd.print(activePreset["Name"] | "");
 
-    JsonObject fileInfo = preset["FileInfo"];
+    JsonObject fileInfo = activePreset["FileInfo"];
     if (!fileInfo.isNull()) {
 
       if (playingMidiFile) {
@@ -86,39 +281,43 @@ void SetPresetDisplayInfo() {
       }
 
     } else {
-      sw1 = preset["Switch1"]["Name"].as<const char *>();
+      sw1 = activePreset["Switch1"]["Name"] | "";
     }
-    sw2 = preset["Switch2"]["Name"].as<const char *>();
-    sw3 = preset["Switch3"]["Name"].as<const char *>();
+    sw2 = activePreset["Switch2"]["Name"] | "";
+    sw3 = activePreset["Switch3"]["Name"] | "";
   }
 
+  int sw1Length = (int)strlen(sw1);
+  int sw2Length = (int)strlen(sw2);
+  int sw3Length = (int)strlen(sw3);
 
-  int sw1Length = strlen(sw1);
-  int sw2Length = strlen(sw2);
-  int sw3Length = strlen(sw3);
+  int padding1, padding3;
+  calculateSwitchPadding(sw1Length, sw2Length, sw3Length, padding1, padding3);
 
-  // Calculate the padding needed for each string
-  int totalLength = sw1Length + sw2Length + sw3Length;
-  int padding1 = (totalLength < 20) ? (20 - totalLength) / 2 : 0;
-  int padding3 = (totalLength < 20) ? (20 - totalLength + 1) / 2 : 0;
+  char sw1Indicator[maxPresetNameLength];
+  char sw2Indicator[maxPresetNameLength];
+  char sw3Indicator[maxPresetNameLength];
 
-  char *sw1Indicator = new char[sw1Length + 1]();  // Allocate memory and initialize to 0
-  char *sw2Indicator = new char[sw2Length + 1]();  // Allocate memory and initialize to 0
-  char *sw3Indicator = new char[sw3Length + 1]();  // Allocate memory and initialize to 0
+  const int sw1CopyLength = sw1Length < (maxPresetNameLength - 1) ? sw1Length : (maxPresetNameLength - 1);
+  const int sw2CopyLength = sw2Length < (maxPresetNameLength - 1) ? sw2Length : (maxPresetNameLength - 1);
+  const int sw3CopyLength = sw3Length < (maxPresetNameLength - 1) ? sw3Length : (maxPresetNameLength - 1);
 
   lcd.setCursor(0, 2);
 
-  for (int i = 0; i < sw1Length; i++) {
-    sw1Indicator[i] = (switchOneToggled) ? '*' : ' ';
+  for (int i = 0; i < sw1CopyLength; i++) {
+    sw1Indicator[i] = switchToggled[0] ? '*' : ' ';
   }
+  sw1Indicator[sw1CopyLength] = '\0';
 
-  for (int i = 0; i < sw2Length; i++) {
-    sw2Indicator[i] = (switchTwoToggled) ? '*' : ' ';
+  for (int i = 0; i < sw2CopyLength; i++) {
+    sw2Indicator[i] = switchToggled[1] ? '*' : ' ';
   }
+  sw2Indicator[sw2CopyLength] = '\0';
 
-  for (int i = 0; i < sw3Length; i++) {
-    sw3Indicator[i] = (switchThreeToggled) ? '*' : ' ';
+  for (int i = 0; i < sw3CopyLength; i++) {
+    sw3Indicator[i] = switchToggled[2] ? '*' : ' ';
   }
+  sw3Indicator[sw3CopyLength] = '\0';
 
   lcd.print(sw1Indicator);
   for (int i = 0; i < padding1; i++) {
@@ -144,472 +343,335 @@ void SetPresetDisplayInfo() {
     lcd.print(" ");
   }
   lcd.print(sw3);
-
-
-
-  // Free allocated memory for indicators
-  delete[] sw1Indicator;
-  delete[] sw2Indicator;
-  delete[] sw3Indicator;
 }
 
 static void switchHandler(uint8_t btnId, uint8_t btnState) {
+  const SwitchAction action = classifySwitchEvent(btnId, btnState, hasLoaded);
 
-  if (btnState == BTN_PRESSED && (btnId == 4 || btnId == 5) && millis() > (longHoldStartMillis + 3000) && hasLoaded == true) {
-    if (pcModeOn) {
-      pcModeOn = false;
-    } else {
-      pcModeOn = true;
-    }
-
-    USBMIDI.sendProgramChange(pcModePCValue, 1);
-    SetPresetDisplayInfo();
-
-
+  if (action == SwitchAction::ExecuteSwitch) {
+    executeSwitchLogic(btnId);
     return;
   }
 
-  if (btnState == BTN_PRESSED && hasLoaded == true) {
-    if (btnId == 1 || btnId == 2 || btnId == 3) {
-      ExecuteSwitchLogic(btnId);
-    } else if (btnId == 4) {
-      if (currentPreset + 1 >= numPrograms - 1) {
-        return;
-      } else {
-        currentPreset++;
-      }
-
-      ChangePreset();
-    } else if (btnId == 5) {
-      currentPreset--;
-      if (currentPreset < 0) {
-        currentPreset = 0;
-      }
-
-      ChangePreset();
+  if (action == SwitchAction::NavigateNext) {
+    presetNavigationDirection = 1;
+    if (!canNavigateNext(currentPreset, presetCount)) {
+      return;
     }
-  }
-
-  if (btnState == BTN_OPEN) {
-    longHoldStartMillis = millis();
+    currentPreset++;
+    changePreset();
+  } else if (action == SwitchAction::NavigatePrev) {
+    presetNavigationDirection = -1;
+    if (!canNavigatePrev(currentPreset)) {
+      return;
+    }
+    currentPreset--;
+    changePreset();
   }
 }
 
-void MidiFileStop() {
-  JsonArray stopCC = preset["FileInfo"]["StopCC"];
+FLASHMEM void stopMidiFile() {
+  if (midiClockEnabled) {
+    MIDI1.sendStop();
+    midiClockEnabled = false;
+  }
+  sendCcArray(activePreset["FileInfo"]["StopCC"]);
+}
 
-  if (!stopCC.isNull()) {
-    for (JsonVariant ccEvent : stopCC) {
-      int ccNumber = ccEvent["CC"];
-      int ccValue = ccEvent["Value"];
-      int ccChannel = ccEvent["Channel"];
-      bool usbEvent = ccEvent["USB"];
+static void startMidiClock(bool enabled) {
+  midiClockEnabled = enabled;
+  if (!midiClockEnabled) {
+    return;
+  }
 
+  midiClockTempo = midiFilePlayer.getTempo();
+  midiClockIntervalUs = midiClockIntervalForTempo(midiClockTempo);
+  if (midiClockIntervalUs == 0) {
+    midiClockEnabled = false;
+    return;
+  }
 
-      if (usbEvent) {
-        USBMIDI.sendControlChange(ccNumber, ccValue, ccChannel);
-      } else {
-        MIDI1.sendControlChange(ccNumber, ccValue, ccChannel);
-      }
-    }
+  MIDI1.sendStart();
+  MIDI1.sendClock();
+  midiClockNextPulseUs = micros() + midiClockIntervalUs;
+}
+
+static void serviceMidiClock() {
+  if (!midiClockEnabled || !playingMidiFile) {
+    return;
+  }
+
+  const uint16_t tempo = midiFilePlayer.getTempo();
+  if (tempo != midiClockTempo) {
+    midiClockTempo = tempo;
+    midiClockIntervalUs = midiClockIntervalForTempo(tempo);
+    midiClockNextPulseUs = micros() + midiClockIntervalUs;
+  }
+  if (midiClockIntervalUs == 0) {
+    return;
+  }
+
+  const uint32_t now = micros();
+  if (static_cast<int32_t>(now - midiClockNextPulseUs) < 0) {
+    return;
+  }
+
+  MIDI1.sendClock();
+  midiClockNextPulseUs += midiClockIntervalUs;
+  if (static_cast<int32_t>(now - midiClockNextPulseUs) >= static_cast<int32_t>(midiClockIntervalUs)) {
+    midiClockNextPulseUs = now + midiClockIntervalUs;
   }
 }
 
-void PlayStopMidiFile(JsonObject fileInfo) {
+static bool prepareMidiFilePlayback(JsonObject fileInfo) {
+  const char *midiFile = fileInfo["FileName"].as<const char *>();
+  if (midiFile == nullptr || midiFile[0] == '\0') {
+    return false;
+  }
 
-  char text[50];
-  const char *playingText = " Playing";
-  const char *stoppingText = " Stopping";
+  midiFilePlayer.close();
+  midiFileLoaded = false;
+
+  if (midiFilePlayer.load(midiFile) != MD_MIDIFile::E_OK) {
+    midiFilePlayer.close();
+    return false;
+  }
+
+  midiFileLoaded = true;
+  return true;
+}
+
+FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
   const char *midiFile = fileInfo["FileName"].as<const char *>();
 
   if (!playingMidiFile) {
-    int err = SMF.load(midiFile);
-    if (err != MD_MIDIFile::E_OK) {
-      ShowError("Midi File load Error ", "");
-    } else {
-
-      SMF.setTempo(fileInfo["BPM"].as<int>());
-      midiFileChannel = fileInfo["Channel"].as<int>();
+    if (!midiFileLoaded && !prepareMidiFilePlayback(fileInfo)) {
+      showError("Midi File load Error ", "");
+      return;
     }
+
+    midiFilePlayer.setTempo(120);
+    const int tempoOverride = configuredMidiTempoOverride(
+      fileInfo["BPM"].is<int>(), fileInfo["BPM"].as<int>());
+    if (tempoOverride > 0) {
+      midiFilePlayer.setTempo(tempoOverride);
+    }
+    midiFilePlayer.restart();
+    midiFileOutputChannel = fileInfo["Channel"].as<int>();
+    stoppingMidiFile = false;
     playingMidiFile = true;
+    startMidiClock(fileInfo["SendMidiClock"].is<bool>() &&
+      fileInfo["SendMidiClock"].as<bool>());
   } else {
     playingMidiFile = false;
     stoppingMidiFile = true;
   }
 
-  strcpy(text, midiFile);
-  int textLength = strlen(text);
+  char text[uiTextBufferLength];
+  snprintf(text, sizeof(text), "%s", midiFile != nullptr ? midiFile : "");
 
-  if (textLength > 1) {
+  if (strlen(text) > 1) {
     lcd.clear();
-    lcd.setCursor(0, 1);
-    int padding = (20 - textLength) / 2;
-
-    // Print leading spaces for centering
-    for (int i = 0; i < padding; i++) {
-      lcd.print(" ");
-    }
-
-    // Print the text
-    lcd.print(text);
+    displayCenteredLine(1, text);
     lcd.setCursor(0, 2);
-    if (playingMidiFile) {
-      lcd.print(playingText);
-    } else {
-      lcd.print(stoppingText);
-    }
-    startMillis = millis();
-    resetPresetDisplay = true;
+    lcd.print(playingMidiFile ? " Playing" : " Stopping");
+    setUiMessageTimeout();
   }
 }
 
-void PCModeEvent(int switchNo) {
-
-  // bool usbEvent = preset["PCMode"]["USB"].as<bool>();
-  // int channel = preset["PCMode"]["Channel"].as<int>();
-
-
-  if (switchNo == 2) {
-    if (pcModePCValue >= 1) {
-      pcModePCValue--;
-    }
-
-  } else {
-    pcModePCValue++;
+void executeSwitchLogic(int switchNo) {
+  if (!activePresetValid) {
+    return;
   }
-
-  // if (usbEvent) {
-  USBMIDI.sendProgramChange(pcModePCValue, 1);
-  // } else {
-  //   MIDI1.sendProgramChange(pcModePCValue, channel);
-  // }
-
-  EEPROM.put(pcAddress, pcModePCValue);
-
-  SetPresetDisplayInfo();
-}
-
-void ExecuteSwitchLogic(int switchNo) {
 
   JsonObject switchLogic;
 
   switch (switchNo) {
     case 1:
-      switchLogic = preset["Switch1"];
+      switchLogic = activePreset["Switch1"];
       break;
     case 2:
-      switchLogic = preset["Switch2"];
+      switchLogic = activePreset["Switch2"];
       break;
     case 3:
-      switchLogic = preset["Switch3"];
+      switchLogic = activePreset["Switch3"];
       break;
   }
 
 
-  JsonArray switchPC = switchLogic["PC"];
-  JsonObject fileInfo = preset["FileInfo"];
-
-
-  if (!fileInfo.isNull() && switchNo == 1) {
-    PlayStopMidiFile(fileInfo);
-  } else {
-
-    if (pcModeOn) {
-      PCModeEvent(switchNo);
-
-    } else {
-
-      const char *tempText = switchLogic["Name"].as<const char *>();
-      char text[50];
-      bool toggle = switchLogic["Toggle"].as<bool>();
-
-      const char *onText = " On!";
-      const char *offText = " Off!";
-
-      if (toggle) {
-        switch (switchNo) {
-          case 1:
-            if (!switchOneToggled) {
-              strcpy(text, tempText);
-              strcat(text, onText);
-            } else {
-              strcpy(text, tempText);
-              strcat(text, offText);
-            }
-            break;
-          case 2:
-            if (!switchTwoToggled) {
-              strcpy(text, tempText);
-              strcat(text, onText);
-            } else {
-              strcpy(text, tempText);
-              strcat(text, offText);
-            }
-            break;
-          case 3:
-            if (!switchThreeToggled) {
-              strcpy(text, tempText);
-              strcat(text, onText);
-            } else {
-              strcpy(text, tempText);
-              strcat(text, offText);
-            }
-            break;
-        }
-      } else {
-        strcpy(text, tempText);
-      }
-
-      int textLength = strlen(text);
-
-      if (textLength > 1) {
-        lcd.clear();
-        lcd.setCursor(0, 1);
-        int padding = (20 - textLength) / 2;
-
-        // Print leading spaces for centering
-        for (int i = 0; i < padding; i++) {
-          lcd.print(" ");
-        }
-
-        // Print the text
-        lcd.print(text);
-        startMillis = millis();
-        resetPresetDisplay = true;
-      }
-
-      if (!switchPC.isNull()) {
-        for (JsonVariant pcEvent : switchPC) {
-          int pc = pcEvent["PC"];
-          int channel = pcEvent["Channel"];
-          bool usbEvent = pcEvent["USB"];
-
-          if (usbEvent) {
-            USBMIDI.sendProgramChange(pc - 1, channel);
-          } else {
-            MIDI1.sendProgramChange(pc - 1, channel);
-          }
-        }
-      }
-
-      JsonArray ccArray = switchLogic["CC"];
-
-      if (!ccArray.isNull()) {
-        for (JsonVariant cc : ccArray) {
-          int ccNumber = cc["CC"];
-          int ccValue = cc["Value"];
-
-          switch (switchNo) {
-            case 1:
-              if (toggle && switchOneToggled) {
-                ccValue = 0;
-                switchOneToggled = false;
-              } else if (toggle && !switchOneToggled) {
-                ccValue = 127;
-                switchOneToggled = true;
-              }
-
-              break;
-            case 2:
-              if (toggle && switchTwoToggled) {
-                ccValue = 0;
-                switchTwoToggled = false;
-              } else if (toggle && !switchTwoToggled) {
-                ccValue = 127;
-                switchTwoToggled = true;
-              }
-
-              break;
-            case 3:
-              if (toggle && switchThreeToggled) {
-                ccValue = 0;
-                switchThreeToggled = false;
-              } else if (toggle && !switchThreeToggled) {
-                ccValue = 127;
-                switchThreeToggled = true;
-              }
-
-              break;
-          }
-
-          int ccChannel = cc["Channel"];
-          bool usbEvent = cc["USB"];
-
-          if (usbEvent) {
-            USBMIDI.sendControlChange(ccNumber, ccValue, ccChannel);
-          } else {
-            MIDI1.sendControlChange(ccNumber, ccValue, ccChannel);
-          }
-        }
-      }
+  // MIDI file playback only triggers on switch 1 — skip FileInfo lookup for 2/3
+  if (switchNo == 1) {
+    JsonObject fileInfo = activePreset["FileInfo"];
+    if (!fileInfo.isNull()) {
+      toggleMidiFilePlayback(fileInfo);
+      return;
     }
+  }
+
+  const char *switchName = switchLogic["Name"].as<const char *>();
+  bool toggle = switchLogic["Toggle"].as<bool>();
+  const bool wasToggled = switchToggled[switchNo - 1];
+
+  sendPcArray(switchLogic["PC"]);
+
+  JsonArray ccArray = switchLogic["CC"];
+  if (!ccArray.isNull()) {
+    bool nextToggleState = false;
+    bool useToggleValue = false;
+
+    if (toggle) {
+      nextToggleState = !wasToggled;
+      useToggleValue = true;
+    }
+
+    for (JsonVariant cc : ccArray) {
+      int ccNumber = cc["CC"];
+      int ccValue = cc["Value"];
+
+      if (useToggleValue) {
+        ccValue = toggleCcValue(wasToggled);
+      }
+
+      int ccChannel = cc["Channel"];
+      bool usbEvent = cc["USB"];
+
+      sendControlChange(ccNumber, ccValue, ccChannel, usbEvent);
+    }
+
+    if (useToggleValue) {
+      switchToggled[switchNo - 1] = nextToggleState;
+    }
+  }
+
+  if (toggle) {
+    showSwitchActionMessage(switchName, !wasToggled ? " On!" : " Off!");
+  } else {
+    showSwitchActionMessage(switchName, "");
   }
 }
 
-void ChangePreset() {
-
-  if (pcModeOn) {
-    return;
-  }
-
+FLASHMEM void changePreset() {
   if (resetPresetDisplay) {
     resetPresetDisplay = false;
+  }
+
+  if (presetCount <= 0) {
+    showError("No presets found", "Add .json files to SD");
+    return;
   }
 
   if (currentPreset < 0) {
     currentPreset = 0;
   }
 
-  if (playingMidiFile) {
-    playingMidiFile = false;
-    stoppingMidiFile = true;
+  const bool stopActiveMidiFile = playingMidiFile || stoppingMidiFile;
+  if (stopActiveMidiFile && activePresetValid) {
+    stopMidiFile();
   }
+  midiFilePlayer.close();
+  midiFileLoaded = false;
+  playingMidiFile = false;
+  stoppingMidiFile = false;
 
-  switchOneToggled = false;
-  switchTwoToggled = false;
-  switchThreeToggled = false;
+  memset(switchToggled, 0, sizeof(switchToggled));
 
   // if saved currentPreset value is greater than the number of presets, reset to 0
-  if (currentPreset + 1 >= numPrograms) {
-    currentPreset = 0;
-    ChangePreset();
+  currentPreset = clampPresetIndex(currentPreset, presetCount);
+
+  if (!applyPresetByIndex(currentPreset)) {
+    activePresetValid = false;
+    showError("Preset load error", "Next/Prev to skip");
+    setUiMessageTimeout();
+    return;
   }
 
+  activePreset = presetDoc;
+  activePresetValid = true;
 
-  char *fileName = presetList[currentPreset];
-
-  if (!file.open(fileName, O_READ)) {
-    ShowError("SD Error", "");
+  JsonObject fileInfo = activePreset["FileInfo"];
+  if (!fileInfo.isNull()) {
+    prepareMidiFilePlayback(fileInfo);
   }
 
-  DeserializationError error = deserializeJson(doc, file);
-  if (error) {
-    ShowError(error.c_str(), "");
-  }
+  sendPcArray(activePreset["OnLoad"]["PC"]);
+  sendCcArray(activePreset["OnLoad"]["CC"]);
 
-  preset = doc;
-
-  JsonArray onLoadPC = preset["OnLoad"]["PC"];
-  JsonArray onLoadCC = preset["OnLoad"]["CC"];
-
-
-  if (!onLoadPC.isNull()) {
-    for (JsonVariant pcEvent : onLoadPC) {
-      int pc = pcEvent["PC"];
-      int channel = pcEvent["Channel"];
-      bool usbEvent = pcEvent["USB"];
-
-      if (usbEvent) {
-        USBMIDI.sendProgramChange(pc - 1, channel);
-      } else {
-        MIDI1.sendProgramChange(pc - 1, channel);
-      }
-    }
-  }
-
-  if (!onLoadCC.isNull()) {
-    for (JsonVariant ccEvent : onLoadCC) {
-      int ccNumber = ccEvent["CC"];
-      int ccValue = ccEvent["Value"];
-      int ccChannel = ccEvent["Channel"];
-      bool usbEvent = ccEvent["USB"];
-
-
-      if (usbEvent) {
-        USBMIDI.sendControlChange(ccNumber, ccValue, ccChannel);
-      } else {
-        MIDI1.sendControlChange(ccNumber, ccValue, ccChannel);
-      }
-    }
-  }
-
-  SetPresetDisplayInfo();
-  EEPROM.put(address, currentPreset);
+  setPresetDisplayInfo();
+  queuePresetSave(currentPreset);
+  queueDirectionalPresetPrefetch();
 }
 
-void BootLCD() {
+FLASHMEM void showBootScreen() {
+  // Custom character: solid block for loading bar
+  byte fullBlock[8] = {0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F};
+  byte emptyBlock[8] = {0x1F, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1F, 0x00};
+  lcd.createChar(0, fullBlock);
+  lcd.createChar(1, emptyBlock);
 
-  lcd.setCursor(0, 0);           // move cursor the first row
-  lcd.print("TA Audio");         // print message at the first row
-  lcd.setCursor(0, 1);           // move cursor to the second row
-  lcd.print("SYNAPSE");          // print message at the second row
-  lcd.setCursor(0, 2);           // move cursor to the third row
-  lcd.print("MIDI CONTROLLER");  // print message at the third row
-  lcd.setCursor(0, 3);           // move cursor to the fourth row
-  lcd.print("v0.1.0");           // print message the fourth row
+  lcd.setCursor(0, 0);
+  lcd.print("TA Audio");
+  lcd.setCursor(0, 1);
+  lcd.print("SYNAPSE");
+  lcd.setCursor(0, 2);
+  lcd.print("MIDI CONTROLLER");
 
-  // Change to use millis to setup can continue whilst lcb boot seq is shown
-  delay(2000);
+  // Draw empty loading bar frame on row 3
+  for (int i = 0; i < lcdColumnCount; i++) {
+    lcd.setCursor(i, 3);
+    lcd.write((uint8_t)1);
+  }
+
+  // Animate the loading bar filling left to right
+  for (int i = 0; i < lcdColumnCount; i++) {
+    lcd.setCursor(i, 3);
+    lcd.write((uint8_t)0);
+    delay(80);
+  }
+  delay(400);
 }
 
-void GetPresets() {
+FLASHMEM void loadPresetList() {
+  presetCount = 0;
+  rootDir.open("/");
 
-  // Open root directory
-  dir.open("/");
+  while (sdFile.openNext(&rootDir, O_RDONLY)) {
+    char fileName[maxPresetNameLength];
+    sdFile.getName(fileName, maxPresetNameLength);
 
-
-
-  while (file.openNext(&dir, O_RDONLY)) {
-
-    int max_characters = 25;      // guess the needed characters
-    char f_name[max_characters];  // the filename variable you want
-    file.getName(f_name, max_characters);
-
-    // Check if the file has a ".json" extension
-    const char *extension = ".json";
-    int nameLength = strlen(f_name);
-    int extensionLength = strlen(extension);
-
-    // Check if the file ends with ".json"
-    if (nameLength >= extensionLength && strcmp(f_name + nameLength - extensionLength, extension) == 0) {
-      // If it ends with ".json", copy the filename to presetList
-      strncpy(presetList[currentIndex], f_name, maxStringLength);
-      currentIndex++;  // Increment the list length
+    if (hasJsonExtension(fileName)) {
+      if (presetCount >= maxPresetListSize) {
+        sdFile.close();
+        break;
+      }
+      strncpy(presetList[presetCount], fileName, maxPresetNameLength);
+      presetList[presetCount][maxPresetNameLength - 1] = '\0';
+      presetCount++;
     }
 
-    file.close();
+    sdFile.close();
   }
 
-  if (dir.getError()) {
-    ShowError("Error opening SD", "");
+  if (rootDir.getError()) {
+    showError("Error opening SD", "");
   }
+
+  rootDir.close();
 
   // Sort presetList numerically
-  for (int i = 0; i < currentIndex - 1; i++) {
-    for (int j = 0; j < currentIndex - i - 1; j++) {
-      // Extract numbers from filenames
-      int num1 = extractNumber(presetList[j]);
-      int num2 = extractNumber(presetList[j + 1]);
-
-      // Compare the extracted numbers
-      if (num1 > num2) {
-        char temp[maxStringLength];
-        strncpy(temp, presetList[j], maxStringLength);
-        temp[maxStringLength - 1] = '\0';  // Ensure null termination
-        strncpy(presetList[j], presetList[j + 1], maxStringLength);
-        strncpy(presetList[j + 1], temp, maxStringLength);
-      }
-    }
+  if (presetCount > 1) {
+    qsort(presetList, presetCount, sizeof(presetList[0]), comparePresetNames);
   }
 
-  numPrograms = currentIndex;
-}
-
-// Function to extract number from filename
-int extractNumber(const char *filename) {
-  int num = 0;
-  int i = 0;
-  while (filename[i] != '\0' && filename[i] >= '0' && filename[i] <= '9') {
-    num = num * 10 + (filename[i] - '0');
-    i++;
-  }
-  return num;
+  prefetchedPresetIndex = -1;
+  prefetchTargetIndex = -1;
+  prefetchRequested = false;
+  prefetchedPresetDoc.clear();
 }
 
 void midiFileCallback(midi_event *pev) {
 
   if ((pev->data[0] >= 0x80) && (pev->data[0] <= 0xe0)) {
-    Serial1.write(pev->data[0] | (midiFileChannel - 1));
+    Serial1.write(pev->data[0] | (midiFileOutputChannel - 1));
     Serial1.write(&pev->data[1], pev->size - 1);
   }
 }
@@ -620,11 +682,11 @@ static Button switch3Button(3, switchHandler);
 static Button nextPresetButton(4, switchHandler);
 static Button prevPresetButton(5, switchHandler);
 
-void setup() {
+FLASHMEM void setup() {
 
   lcd.init();  // initialize the lcd
   lcd.backlight();
-  BootLCD();
+  showBootScreen();
 
   // Wait 1.5 seconds before turning on USB Host.  If connected USB devices
   // use too much power, Teensy at least completes USB enumeration, which
@@ -632,13 +694,11 @@ void setup() {
   delay(1500);
   usbHost.begin();
 
-  // initialize the digital pin as an output.
-  pinMode(13, OUTPUT);
-  pinMode(switch1, INPUT);
-  pinMode(switch2, INPUT);
-  pinMode(switch3, INPUT);
-  pinMode(nextPreset, INPUT);
-  pinMode(prevPreset, INPUT);
+  pinMode(switch1Pin, INPUT_PULLUP);
+  pinMode(switch2Pin, INPUT_PULLUP);
+  pinMode(switch3Pin, INPUT_PULLUP);
+  pinMode(nextPresetPin, INPUT_PULLUP);
+  pinMode(prevPresetPin, INPUT_PULLUP);
 
   MIDI1.begin(MIDI_CHANNEL_OMNI);
 
@@ -647,43 +707,31 @@ void setup() {
   MIDI3.begin(MIDI_CHANNEL_OMNI);
   MIDI3.turnThruOff();
 
-
-
   if (!SD.begin(BUILTIN_SDCARD)) {
-    ShowError("SD Card Error", "Is the card inserted and fat32?");
+    showError("SD Card Error", "Is the card inserted and fat32?");
     while (true)
       ;
   }
 
-  SMF.begin(&(SdFat &)SD);
-  SMF.setMidiHandler(midiFileCallback);
+  midiFilePlayer.begin(&(SdFat &)SD);
+  midiFilePlayer.setMidiHandler(midiFileCallback);
 
+  loadPresetList();
 
-  GetPresets();
+  EEPROM.get(presetEepromAddress, currentPreset);
 
-  // delay(500);
-
-  EEPROM.get(address, currentPreset);
-  EEPROM.get(pcAddress, pcModePCValue);
-
-  if (pcModePCValue < 0 || pcModePCValue > 127) {
-    pcModePCValue = 0;
-    EEPROM.put(pcAddress, pcModePCValue);
-  }
-
-  Serial.println(currentPreset);
+  currentPreset = validateStoredPreset(currentPreset, maxPresetListSize);
 
   startMillis = millis();
 }
 
 static void pollButtons() {
-  // update() will call buttonHandler() if PIN transitions to a new state and stays there
-  // for multiple reads over 25+ ms.
-  switch1Button.update(digitalRead(switch1));
-  switch2Button.update(digitalRead(switch2));
-  switch3Button.update(digitalRead(switch3));
-  nextPresetButton.update(digitalRead(nextPreset));
-  prevPresetButton.update(digitalRead(prevPreset));
+  // digitalReadFast compiles to a single register read vs digitalRead's pin lookup table.
+  switch1Button.update(digitalReadFast(switch1Pin));
+  switch2Button.update(digitalReadFast(switch2Pin));
+  switch3Button.update(digitalReadFast(switch3Pin));
+  nextPresetButton.update(digitalReadFast(nextPresetPin));
+  prevPresetButton.update(digitalReadFast(prevPresetPin));
 }
 
 void loop() {
@@ -692,50 +740,39 @@ void loop() {
 
   usbHost.Task();
 
-  // USBMIDI.sendProgramChange(1, 1);
-
   MIDI1.read();
-
-  if (MIDI2.read()) {
-    MIDI1.send(MIDI2.getType(),
-               MIDI2.getData1(),
-               MIDI2.getData2(),
-               MIDI2.getChannel());
-  }
-
-  if (MIDI3.read()) {
-    MIDI1.send(MIDI3.getType(),
-               MIDI3.getData1(),
-               MIDI3.getData2(),
-               MIDI3.getChannel());
-  }
+  serviceMidiPassthrough();
 
   pollButtons();
-  if (!hasLoaded && currentMillis - startMillis >= period) {
+  if (!hasLoaded && (currentMillis - startMillis >= initialLoadDelayMs)) {
     hasLoaded = true;
-    ChangePreset();
+    changePreset();
   }
 
-  if (resetPresetDisplay && currentMillis > (startMillis + switchDisplayPeriod)) {
+  if (resetPresetDisplay && (currentMillis - switchDisplayStartMillis >= switchDisplayPeriodMs)) {
     resetPresetDisplay = false;
-    SetPresetDisplayInfo();
+    requestPresetDisplayRefresh();
   }
 
 
   if (playingMidiFile) {
-    if (!SMF.isEOF()) {
-      SMF.getNextEvent();
+    if (!midiFilePlayer.isEOF()) {
+      midiFilePlayer.getNextEvent();
     } else {
       playingMidiFile = false;
       stoppingMidiFile = true;
     }
   } else {
-    if (stoppingMidiFile == true) {
-      SMF.close();
-      MidiFileStop();
+    if (stoppingMidiFile) {
+      stopMidiFile();
       stoppingMidiFile = false;
       playingMidiFile = false;
-      SetPresetDisplayInfo();
+      requestPresetDisplayRefresh();
     }
   }
+
+  serviceMidiClock();
+  servicePresetDisplayRefresh();
+  servicePresetPrefetch();
+  commitPendingEepromWrites();
 }
