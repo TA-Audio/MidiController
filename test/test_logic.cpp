@@ -54,6 +54,32 @@ TEST(ConfiguredMidiTempoOverride, NegativeTempoUsesMidiFileTempo) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ConfiguredPresetMidiClockTempo
+// ═══════════════════════════════════════════════════════════════════════════════
+
+TEST(ConfiguredPresetMidiClockTempo, DisabledClockDoesNotRequireTempo) {
+  EXPECT_EQ(configuredPresetMidiClockTempo(false, false, 0), 0);
+}
+
+TEST(ConfiguredPresetMidiClockTempo, UsesConfiguredPositiveTempo) {
+  EXPECT_EQ(configuredPresetMidiClockTempo(true, true, 120), 120);
+}
+
+TEST(ConfiguredPresetMidiClockTempo, MissingTempoIsInvalidWhenEnabled) {
+  EXPECT_EQ(configuredPresetMidiClockTempo(true, false, 0), -1);
+}
+
+TEST(ConfiguredPresetMidiClockTempo, NonPositiveTempoIsInvalidWhenEnabled) {
+  EXPECT_EQ(configuredPresetMidiClockTempo(true, true, 0), -1);
+  EXPECT_EQ(configuredPresetMidiClockTempo(true, true, -1), -1);
+}
+
+TEST(ConfiguredPresetMidiClockTempo, TempoMustFitMidiClockState) {
+  EXPECT_EQ(configuredPresetMidiClockTempo(true, true, 65535), 65535);
+  EXPECT_EQ(configuredPresetMidiClockTempo(true, true, 65536), -1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MidiClockIntervalForTempo
 // ═══════════════════════════════════════════════════════════════════════════════
 

@@ -12,6 +12,7 @@ A feature-rich MIDI foot controller built on the **Teensy 4.1** platform. Design
 - The active preset index is saved to EEPROM so the controller remembers its position across power cycles.
 - Presets are prefetched in the direction of navigation for instant loading.
 - Invalid preset JSON displays an error; use **Next / Previous** to skip the preset.
+- Set top-level `BPM` and `SendMidiClock` fields to send preset MIDI Clock when no MIDI file is playing.
 
 ### Three Configurable Foot Switches
 Each preset defines up to three foot switch actions (`Switch1`, `Switch2`, `Switch3`):
@@ -30,7 +31,7 @@ Each preset can define `OnLoad` PC and CC messages that are sent automatically w
 - Switch 1 becomes **Play / Stop** for that file.
 - The selected MIDI file is prepared when its preset is loaded and stays ready between plays, reducing delay when Switch 1 starts playback.
 - Optional BPM override and output channel. If `FileInfo.BPM` is omitted or null, playback uses the tempo embedded in the MIDI file.
-- Set `FileInfo.SendMidiClock` to `true` to send MIDI Start, 24-PPQN Clock pulses, and MIDI Stop over DIN MIDI OUT during playback. The pulse rate follows the tempo currently used by the MIDI file player.
+- Set `FileInfo.SendMidiClock` to `true` to send MIDI Start, 24-PPQN Clock pulses, and MIDI Stop over DIN MIDI OUT during playback. The pulse rate follows the tempo currently used by the MIDI file player. MIDI-file Clock takes precedence over preset Clock; the preset Clock resumes when file playback stops or reaches EOF.
 - Optional `StopCC` array to send CC messages when playback stops (e.g. silence a looper).
 
 ### MIDI I/O
@@ -44,12 +45,13 @@ Each preset can define `OnLoad` PC and CC messages that are sent automatically w
 ### Display
 - **20×4 I2C LCD** (address `0x27`).
 - Row 0: Preset name.
+- Preset names longer than 20 characters scroll left and right across row 0.
 - Row 2: Toggle indicators (`*` per switch when toggled on).
 - Row 3: Switch labels from the preset JSON.
 - Temporary overlay messages (e.g. "DIST On!") display for 1.5 seconds then return to the preset view.
 
 ### Boot Screen
-Displays "TA Audio / SYNAPSE / MIDI CONTROLLER / v0.1.0" for 2 seconds on power-up.
+Displays "TA Audio / SYNAPSE / MIDI CONTROLLER / v0.2.0" for 2 seconds on power-up.
 
 ## Hardware
 
@@ -139,6 +141,8 @@ When `FileInfo` is present, Switch 1 becomes a play/stop control for the specifi
 | Field | Type | Description |
 |---|---|---|
 | `Name` | string | Display name shown on the LCD. |
+| `BPM` | int | Tempo for preset MIDI Clock (1–65535); required when `SendMidiClock` is `true`. |
+| `SendMidiClock` | bool | If `true`, sends preset MIDI Start and 24-PPQN Clock over DIN MIDI OUT when no MIDI file is playing. Defaults to `false`. |
 | `OnLoad.PC[]` | array | Program Change messages sent when the preset loads. |
 | `OnLoad.CC[]` | array | Control Change messages sent when the preset loads. |
 | `Switch1/2/3.Name` | string | Label shown on the LCD for this switch. |
