@@ -192,9 +192,29 @@ arduino-cli compile --fqbn teensy:avr:teensy41 midicontroller/midicontroller.ino
 arduino-cli upload  --fqbn teensy:avr:teensy41 -p <PORT> midicontroller/midicontroller.ino
 ```
 
+## Preset Editor (Web)
+
+A browser-based preset editor lives in [`preset-editor/`](preset-editor) and is published to GitHub Pages at **https://ta-audio.github.io/MidiController/**.
+
+- Click **Open preset folder** and choose the folder holding your preset `.json` files (e.g. the SD card root).
+- Edit every preset field with the form (name, BPM / MIDI Clock, MIDI file playback, On Load messages, and all three switches), or edit the raw JSON.
+- An LCD preview and validation warnings show how the preset will look and flag out-of-range values.
+- Add, duplicate, rename, or delete presets, then **Save to folder** (or `Ctrl+S`) to write the changes back.
+- Direct folder saving requires a Chromium-based browser (Chrome / Edge). Other browsers can load presets and download the result as a zip.
+
+Run it locally:
+
+```bash
+cd preset-editor
+npm install
+npm run dev
+```
+
 ## CI
 
 A GitHub Actions workflow (`.github/workflows/compile.yml`) compiles the firmware on every push and pull request. It automatically patches the MD_MIDIFile library for Teensy compatibility.
+
+The `.github/workflows/pages.yml` workflow builds the preset editor and deploys it to GitHub Pages whenever `preset-editor/` changes on `main`. In the repository settings, set **Pages → Source** to **GitHub Actions**.
 
 ## License
 
