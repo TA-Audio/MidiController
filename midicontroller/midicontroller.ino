@@ -31,9 +31,13 @@ bool playingMidiFile = false;
 bool stoppingMidiFile = false;
 bool midiFileLoaded = false;
 bool midiClockEnabled = false;
+bool midiClockForMidiFile = false;
 uint16_t midiClockTempo = 0;
 uint32_t midiClockIntervalUs = 0;
 uint32_t midiClockNextPulseUs = 0;
+int presetNameScrollOffset = 0;
+int presetNameScrollDirection = 1;
+unsigned long presetNameScrollStartMillis = 0;
 bool pendingDisplayRefresh = false;
 bool pendingPresetSave = false;
 int pendingPresetValue = 0;
@@ -269,7 +273,10 @@ void setPresetDisplayInfo() {
     displayCenteredLine(1, "Next/Prev to skip");
     return;
   } else {
-    lcd.print(activePreset["Name"] | "");
+    presetNameScrollOffset = 0;
+    presetNameScrollDirection = 1;
+    presetNameScrollStartMillis = currentMillis;
+    displayPresetName();
 
     JsonObject fileInfo = activePreset["FileInfo"];
     if (!fileInfo.isNull()) {
@@ -345,6 +352,102 @@ void setPresetDisplayInfo() {
   lcd.print(sw3);
 }
 
+static void displayPresetName() {
+  const char *name = activePreset["Name"] | "";
+  const int nameLength = static_cast<int>(strlen(name));
+  const int maxOffset = nameLength > lcdColumnCount ? nameLength - lcdColumnCount : 0;
+  if (presetNameScrollOffset > maxOffset) {
+    presetNameScrollOffset = maxOffset;
+  }
+
+  lcd.setCursor(0, 0);
+  int column = 0;
+  for (; column < lcdColumnCount && presetNameScrollOffset + column < nameLength; ++column) {
+    lcd.print(name[presetNameScrollOffset + column]);
+  }
+  for (; column < lcdColumnCount; ++column) {
+    lcd.print(' ');
+  }
+}
+
+static void servicePresetNameScroll() {
+  if (!activePresetValid || resetPresetDisplay ||
+      !hasElapsed(currentMillis, presetNameScrollStartMillis, presetNameScrollPeriodMs)) {
+    return;
+  }
+
+  const char *name = activePreset["Name"] | "";
+  const int maxOffset = static_cast<int>(strlen(name)) - lcdColumnCount;
+  if (maxOffset <= 0) {
+    return;
+  }
+
+  presetNameScrollOffset += presetNameScrollDirection;
+  if (presetNameScrollOffset >= maxOffset) {
+    presetNameScrollOffset = maxOffset;
+    presetNameScrollDirection = -1;
+  } else if (presetNameScrollOffset <= 0) {
+    presetNameScrollOffset = 0;
+    presetNameScrollDirection = 1;
+  }
+  presetNameScrollStartMillis = currentMillis;
+  displayPresetName();
+}
+
+static void stopMidiClock() {
+  if (midiClockEnabled) {
+    MIDI1.sendStop();
+  }
+  midiClockEnabled = false;
+  midiClockForMidiFile = false;
+  midiClockTempo = 0;
+  midiClockIntervalUs = 0;
+  midiClockNextPulseUs = 0;
+}
+
+static void startMidiClock(uint16_t tempo, bool forMidiFile) {
+  const uint32_t interval = midiClockIntervalForTempo(tempo);
+  if (interval == 0) {
+    return;
+  }
+
+  midiClockEnabled = true;
+  midiClockForMidiFile = forMidiFile;
+  midiClockTempo = tempo;
+  midiClockIntervalUs = interval;
+  MIDI1.sendStart();
+  MIDI1.sendClock();
+  midiClockNextPulseUs = micros() + midiClockIntervalUs;
+}
+
+static bool startPresetMidiClock() {
+  if (!activePresetValid) {
+    return true;
+  }
+
+  if (activePreset.containsKey("SendMidiClock") &&
+    !activePreset["SendMidiClock"].is<bool>()) {
+    showError("Preset Clock Error", "Set SendMidiClock true/false");
+    setUiMessageTimeout();
+    return false;
+  }
+
+  if (!activePreset["SendMidiClock"].as<bool>()) {
+    return true;
+  }
+
+  const int tempo = configuredPresetMidiClockTempo(
+    true, activePreset["BPM"].is<int>(), activePreset["BPM"].as<int>());
+  if (tempo < 0) {
+    showError("Preset Clock Error", "Set BPM to 1..65535");
+    setUiMessageTimeout();
+    return false;
+  }
+
+  startMidiClock(static_cast<uint16_t>(tempo), false);
+  return midiClockEnabled;
+}
+
 static void switchHandler(uint8_t btnId, uint8_t btnState) {
   const SwitchAction action = classifySwitchEvent(btnId, btnState, hasLoaded);
 
@@ -371,38 +474,17 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
 }
 
 FLASHMEM void stopMidiFile() {
-  if (midiClockEnabled) {
-    MIDI1.sendStop();
-    midiClockEnabled = false;
-  }
+  stopMidiClock();
   sendCcArray(activePreset["FileInfo"]["StopCC"]);
 }
 
-static void startMidiClock(bool enabled) {
-  midiClockEnabled = enabled;
-  if (!midiClockEnabled) {
-    return;
-  }
-
-  midiClockTempo = midiFilePlayer.getTempo();
-  midiClockIntervalUs = midiClockIntervalForTempo(midiClockTempo);
-  if (midiClockIntervalUs == 0) {
-    midiClockEnabled = false;
-    return;
-  }
-
-  MIDI1.sendStart();
-  MIDI1.sendClock();
-  midiClockNextPulseUs = micros() + midiClockIntervalUs;
-}
-
 static void serviceMidiClock() {
-  if (!midiClockEnabled || !playingMidiFile) {
+  if (!midiClockEnabled || (midiClockForMidiFile && !playingMidiFile)) {
     return;
   }
 
-  const uint16_t tempo = midiFilePlayer.getTempo();
-  if (tempo != midiClockTempo) {
+  const uint16_t tempo = midiClockForMidiFile ? midiFilePlayer.getTempo() : midiClockTempo;
+  if (midiClockForMidiFile && tempo != midiClockTempo) {
     midiClockTempo = tempo;
     midiClockIntervalUs = midiClockIntervalForTempo(tempo);
     midiClockNextPulseUs = micros() + midiClockIntervalUs;
@@ -450,6 +532,7 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
       return;
     }
 
+    stopMidiClock();
     midiFilePlayer.setTempo(120);
     const int tempoOverride = configuredMidiTempoOverride(
       fileInfo["BPM"].is<int>(), fileInfo["BPM"].as<int>());
@@ -460,8 +543,11 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
     midiFileOutputChannel = fileInfo["Channel"].as<int>();
     stoppingMidiFile = false;
     playingMidiFile = true;
-    startMidiClock(fileInfo["SendMidiClock"].is<bool>() &&
-      fileInfo["SendMidiClock"].as<bool>());
+    const bool sendFileClock = fileInfo["SendMidiClock"].is<bool>() &&
+      fileInfo["SendMidiClock"].as<bool>();
+    if (sendFileClock) {
+      startMidiClock(midiFilePlayer.getTempo(), true);
+    }
   } else {
     playingMidiFile = false;
     stoppingMidiFile = true;
@@ -567,6 +653,8 @@ FLASHMEM void changePreset() {
   const bool stopActiveMidiFile = playingMidiFile || stoppingMidiFile;
   if (stopActiveMidiFile && activePresetValid) {
     stopMidiFile();
+  } else {
+    stopMidiClock();
   }
   midiFilePlayer.close();
   midiFileLoaded = false;
@@ -597,6 +685,7 @@ FLASHMEM void changePreset() {
   sendCcArray(activePreset["OnLoad"]["CC"]);
 
   setPresetDisplayInfo();
+  startPresetMidiClock();
   queuePresetSave(currentPreset);
   queueDirectionalPresetPrefetch();
 }
@@ -611,7 +700,7 @@ FLASHMEM void showBootScreen() {
   lcd.setCursor(0, 0);
   lcd.print("TA Audio");
   lcd.setCursor(0, 1);
-  lcd.print("SYNAPSE");
+  lcd.print("SYNAPSE v0.2.0");
   lcd.setCursor(0, 2);
   lcd.print("MIDI CONTROLLER");
 
@@ -767,12 +856,14 @@ void loop() {
       stopMidiFile();
       stoppingMidiFile = false;
       playingMidiFile = false;
+      startPresetMidiClock();
       requestPresetDisplayRefresh();
     }
   }
 
   serviceMidiClock();
   servicePresetDisplayRefresh();
+  servicePresetNameScroll();
   servicePresetPrefetch();
   commitPendingEepromWrites();
 }

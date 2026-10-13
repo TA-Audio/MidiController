@@ -1,5 +1,7 @@
 {
     "Name": "Preset1",
+    "BPM": 120,
+    "SendMidiClock": false,
     "OnLoad": {
         "CC": [
             {

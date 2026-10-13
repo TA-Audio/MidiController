@@ -21,6 +21,7 @@ static constexpr int prevPresetPin = 6;
 
 static constexpr unsigned long initialLoadDelayMs = 1000;
 static constexpr unsigned long switchDisplayPeriodMs = 1500;
+static constexpr unsigned long presetNameScrollPeriodMs = 500;
 static constexpr unsigned long eepromCommitDelayMs = 200;
 
 // ── Display ──────────────────────────────────────────────────────────────────
@@ -41,6 +42,13 @@ static constexpr int midiValueMax = 127;
 /// Return a positive configured tempo override, or 0 to use the MIDI file tempo.
 inline int configuredMidiTempoOverride(bool tempoIsSet, int tempoBpm) {
   return tempoIsSet && tempoBpm > 0 ? tempoBpm : 0;
+}
+
+/// Return 0 when disabled, a valid MIDI Clock tempo, or -1 when enabled but invalid.
+inline int configuredPresetMidiClockTempo(bool enabled, bool tempoIsSet, int tempoBpm) {
+  if (!enabled) return 0;
+  if (!tempoIsSet || tempoBpm <= 0 || tempoBpm > 65535) return -1;
+  return tempoBpm;
 }
 
 /// Calculate the interval between MIDI Clock pulses at 24 pulses per quarter note.
@@ -282,4 +290,3 @@ inline SwitchAction classifySwitchEvent(uint8_t btnId, uint8_t btnState,
 
   return SwitchAction::None;
 }
-
