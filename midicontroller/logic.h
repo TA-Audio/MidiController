@@ -56,6 +56,19 @@ inline uint32_t midiClockIntervalForTempo(uint16_t tempo) {
   return tempo == 0 ? 0 : 60000000UL / (static_cast<uint32_t>(tempo) * 24UL);
 }
 
+enum class MidiFileClockMode {
+  Disabled,
+  TransportOnly,
+  ClockAndTransport
+};
+
+inline MidiFileClockMode midiFileClockMode(bool requested, bool clockEnabled,
+                                         bool clockForMidiFile) {
+  if (!requested) return MidiFileClockMode::Disabled;
+  if (clockEnabled && !clockForMidiFile) return MidiFileClockMode::TransportOnly;
+  return MidiFileClockMode::ClockAndTransport;
+}
+
 // ── EEPROM addresses ─────────────────────────────────────────────────────────
 
 static constexpr int presetEepromAddress = 0;

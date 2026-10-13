@@ -95,6 +95,30 @@ TEST(MidiClockIntervalForTempo, Calculates24PpqnIntervalAt60Bpm) {
   EXPECT_EQ(midiClockIntervalForTempo(60), 41666U);
 }
 
+TEST(MidiFileClockMode, DisabledFileClockDoesNotRequestTransportOrClock) {
+  EXPECT_EQ(midiFileClockMode(false, false, false), MidiFileClockMode::Disabled);
+  EXPECT_EQ(midiFileClockMode(false, true, false), MidiFileClockMode::Disabled);
+  EXPECT_EQ(midiFileClockMode(false, true, true), MidiFileClockMode::Disabled);
+}
+
+TEST(MidiFileClockMode, ActivePresetClockRetainsPriority) {
+  EXPECT_EQ(midiFileClockMode(true, true, false), MidiFileClockMode::TransportOnly);
+}
+
+TEST(MidiFileClockMode, NoActiveClockAllowsFileClock) {
+  EXPECT_EQ(midiFileClockMode(true, false, false), MidiFileClockMode::ClockAndTransport);
+}
+
+TEST(MidiFileClockMode, InactivePresetClockDoesNotBlockFileClock) {
+  EXPECT_EQ(configuredPresetMidiClockTempo(true, false, 0), -1);
+  EXPECT_EQ(midiFileClockMode(true, false, false), MidiFileClockMode::ClockAndTransport);
+}
+
+TEST(MidiFileClockMode, FileOwnedClockDoesNotBlockFileClock) {
+  EXPECT_EQ(midiFileClockMode(true, true, true), MidiFileClockMode::ClockAndTransport);
+  EXPECT_EQ(midiFileClockMode(true, false, true), MidiFileClockMode::ClockAndTransport);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ExtractNumber
 // ═══════════════════════════════════════════════════════════════════════════════
