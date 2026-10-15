@@ -662,6 +662,10 @@ FLASHMEM void changePreset() {
     currentPreset = 0;
   }
 
+  if (activePresetValid) {
+    sendCcArray(activePreset["OnExit"]["CC"]);
+  }
+
   const bool stopActiveMidiFile = playingMidiFile || stoppingMidiFile;
   if (stopActiveMidiFile && activePresetValid) {
     stopMidiFile(true);

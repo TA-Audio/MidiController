@@ -13,6 +13,7 @@ function guessChannel(p: Preset): number {
   const all = [
     ...p.OnLoad.PC,
     ...p.OnLoad.CC,
+    ...p.OnExit.CC,
     ...SWITCH_KEYS.flatMap((k) => [...p[k].PC, ...p[k].CC]),
   ];
   return all[0]?.Channel ?? p.FileInfo?.Channel ?? DEFAULT_CHANNEL;
@@ -196,6 +197,12 @@ export function PresetEditor({ preset, onChange, midiFiles }: Props) {
             <h3>On Load</h3>
             <PcList title="Program Change" list={preset.OnLoad.PC} onChange={(PC) => onChange({ ...preset, OnLoad: { ...preset.OnLoad, PC } })} defaultChannel={channel} />
             <CcList title="Control Change" list={preset.OnLoad.CC} onChange={(CC) => onChange({ ...preset, OnLoad: { ...preset.OnLoad, CC } })} defaultChannel={channel} />
+          </section>
+
+          <section className="card">
+            <h3>On Exit</h3>
+            <p className="hint">Control Change messages sent when navigating away from this preset.</p>
+            <CcList title="Control Change" list={preset.OnExit.CC} onChange={(CC) => onChange({ ...preset, OnExit: { CC } })} defaultChannel={channel} />
           </section>
 
           <div className="switches">

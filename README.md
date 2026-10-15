@@ -26,6 +26,9 @@ Each preset defines up to three foot switch actions (`Switch1`, `Switch2`, `Swit
 ### On-Load Events
 Each preset can define `OnLoad` PC and CC messages that are sent automatically when the preset is selected — useful for switching amp channels, enabling default effects, etc.
 
+### On-Exit Events
+Each preset can define `OnExit` CC messages that are sent when navigating away to a different preset — useful for disabling effects or resetting equipment. On Exit supports Control Change messages only.
+
 ### MIDI File Playback
 - Assign a `.mid` file to a preset via the `FileInfo` key.
 - Switch 1 becomes **Play / Stop** for that file.
@@ -92,6 +95,9 @@ Each preset is a `.json` file on the SD card root. Filenames should be numbered 
     "PC": [{ "PC": 5, "Channel": 1, "USB": false }],
     "CC": [{ "CC": 1, "Value": 127, "Channel": 1 }]
   },
+  "OnExit": {
+    "CC": [{ "CC": 1, "Value": 0, "Channel": 1 }]
+  },
   "Switch1": {
     "Name": "DRIVE",
     "Toggle": true,
@@ -146,6 +152,7 @@ When `FileInfo` is present, Switch 1 becomes a play/stop control for the specifi
 | `SendMidiClock` | bool | If `true`, sends preset MIDI Start and 24-PPQN Clock over DIN MIDI OUT. Preset Clock continues at `BPM` during file playback and takes precedence over file Clock. Defaults to `false`. |
 | `OnLoad.PC[]` | array | Program Change messages sent when the preset loads. |
 | `OnLoad.CC[]` | array | Control Change messages sent when the preset loads. |
+| `OnExit.CC[]` | array | Control Change messages sent when navigating away from the preset. |
 | `Switch1/2/3.Name` | string | Label shown on the LCD for this switch. |
 | `Switch1/2/3.Toggle` | bool | If `true`, the switch alternates between on/off states. |
 | `Switch1/2/3.CC[]` | array | CC messages sent on press. In toggle mode, value is overridden to 127 (on) or 0 (off). |
@@ -198,7 +205,7 @@ arduino-cli upload  --fqbn teensy:avr:teensy41 -p <PORT> midicontroller/midicont
 A browser-based preset editor lives in [`preset-editor/`](preset-editor) and is published to GitHub Pages at **https://ta-audio.github.io/MidiController/**.
 
 - Click **Open preset folder** and choose the folder holding your preset `.json` files (e.g. the SD card root).
-- Edit every preset field with the form (name, BPM / MIDI Clock, MIDI file playback, On Load messages, and all three switches), or edit the raw JSON.
+- Edit every preset field with the form (name, BPM / MIDI Clock, MIDI file playback, On Load and On Exit messages, and all three switches), or edit the raw JSON.
 - An LCD preview and validation warnings show how the preset will look and flag out-of-range values.
 - Add, duplicate, rename, or delete presets, then **Save to folder** (or `Ctrl+S`) to write the changes back.
 - Direct folder saving requires a Chromium-based browser (Chrome / Edge). Other browsers can load presets and download the result as a zip.
