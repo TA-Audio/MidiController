@@ -555,12 +555,14 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
     playingMidiFile = true;
     const bool sendFileClock = fileInfo["SendMidiClock"].is<bool>() &&
       fileInfo["SendMidiClock"].as<bool>();
-    activeMidiFileClockMode = midiFileClockMode(
-      sendFileClock, midiClockEnabled, midiClockForMidiFile);
-    if (activeMidiFileClockMode != MidiFileClockMode::Disabled) {
+    const MidiFilePlaybackActions actions = midiFilePlaybackActions(
+      sendFileClock, midiClockEnabled, midiClockForMidiFile,
+      midiFilePlayer.getTempo());
+    activeMidiFileClockMode = actions.clockMode;
+    if (actions.sendStart) {
       MIDI1.sendStart();
     }
-    if (activeMidiFileClockMode == MidiFileClockMode::ClockAndTransport) {
+    if (actions.startClock) {
       startMidiClock(midiFilePlayer.getTempo(), true, false);
     }
   } else {

@@ -69,6 +69,26 @@ inline MidiFileClockMode midiFileClockMode(bool requested, bool clockEnabled,
   return MidiFileClockMode::ClockAndTransport;
 }
 
+struct MidiFilePlaybackActions {
+  MidiFileClockMode clockMode;
+  bool sendStart;
+  bool startClock;
+};
+
+inline MidiFilePlaybackActions midiFilePlaybackActions(bool sendFileClock,
+                                                       bool clockEnabled,
+                                                       bool clockForMidiFile,
+                                                       uint16_t fileTempo) {
+  const MidiFileClockMode clockMode = midiFileClockMode(
+    sendFileClock, clockEnabled, clockForMidiFile);
+  return {
+    clockMode,
+    clockMode != MidiFileClockMode::Disabled,
+    clockMode == MidiFileClockMode::ClockAndTransport &&
+      midiClockIntervalForTempo(fileTempo) != 0
+  };
+}
+
 // ── EEPROM addresses ─────────────────────────────────────────────────────────
 
 static constexpr int presetEepromAddress = 0;

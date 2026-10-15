@@ -119,6 +119,30 @@ TEST(MidiFileClockMode, FileOwnedClockDoesNotBlockFileClock) {
   EXPECT_EQ(midiFileClockMode(true, false, true), MidiFileClockMode::ClockAndTransport);
 }
 
+TEST(MidiFilePlaybackActions, SendsStartWhenFileClockTempoIsZero) {
+  const MidiFilePlaybackActions actions = midiFilePlaybackActions(true, false, false, 0);
+
+  EXPECT_EQ(actions.clockMode, MidiFileClockMode::ClockAndTransport);
+  EXPECT_TRUE(actions.sendStart);
+  EXPECT_FALSE(actions.startClock);
+}
+
+TEST(MidiFilePlaybackActions, ActivePresetClockSendsStartWithoutStartingFileClock) {
+  const MidiFilePlaybackActions actions = midiFilePlaybackActions(true, true, false, 120);
+
+  EXPECT_EQ(actions.clockMode, MidiFileClockMode::TransportOnly);
+  EXPECT_TRUE(actions.sendStart);
+  EXPECT_FALSE(actions.startClock);
+}
+
+TEST(MidiFilePlaybackActions, DisabledFileClockSendsNeitherStartNorClock) {
+  const MidiFilePlaybackActions actions = midiFilePlaybackActions(false, false, false, 120);
+
+  EXPECT_EQ(actions.clockMode, MidiFileClockMode::Disabled);
+  EXPECT_FALSE(actions.sendStart);
+  EXPECT_FALSE(actions.startClock);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ExtractNumber
 // ═══════════════════════════════════════════════════════════════════════════════
