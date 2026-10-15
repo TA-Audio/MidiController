@@ -406,7 +406,7 @@ static void stopMidiClock() {
   midiClockNextPulseUs = 0;
 }
 
-static void startMidiClock(uint16_t tempo, bool forMidiFile) {
+static void startMidiClock(uint16_t tempo, bool forMidiFile, bool sendStart = true) {
   const uint32_t interval = midiClockIntervalForTempo(tempo);
   if (interval == 0) {
     return;
@@ -416,7 +416,9 @@ static void startMidiClock(uint16_t tempo, bool forMidiFile) {
   midiClockForMidiFile = forMidiFile;
   midiClockTempo = tempo;
   midiClockIntervalUs = interval;
-  MIDI1.sendStart();
+  if (sendStart) {
+    MIDI1.sendStart();
+  }
   MIDI1.sendClock();
   midiClockNextPulseUs = micros() + midiClockIntervalUs;
 }
@@ -555,10 +557,11 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
       fileInfo["SendMidiClock"].as<bool>();
     activeMidiFileClockMode = midiFileClockMode(
       sendFileClock, midiClockEnabled, midiClockForMidiFile);
-    if (activeMidiFileClockMode == MidiFileClockMode::ClockAndTransport) {
-      startMidiClock(midiFilePlayer.getTempo(), true);
-    } else if (activeMidiFileClockMode == MidiFileClockMode::TransportOnly) {
+    if (activeMidiFileClockMode != MidiFileClockMode::Disabled) {
       MIDI1.sendStart();
+    }
+    if (activeMidiFileClockMode == MidiFileClockMode::ClockAndTransport) {
+      startMidiClock(midiFilePlayer.getTempo(), true, false);
     }
   } else {
     playingMidiFile = false;
