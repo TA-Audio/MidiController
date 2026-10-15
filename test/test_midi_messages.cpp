@@ -64,6 +64,11 @@ static void processPresetOnLoad(JsonObject preset) {
   sendCcArray(preset["OnLoad"]["CC"]);
 }
 
+/// Simulates leaving a preset: sends only the preset's OnExit CC messages.
+static void processPresetOnExit(JsonObject preset) {
+  sendCcArray(preset["OnExit"]["CC"]);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Test fixture
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -261,6 +266,42 @@ TEST_F(MidiMessageTest, SwitchPress_NonToggle_PcAndCc) {
   EXPECT_EQ(midiLog()[1].value2, 100);
   EXPECT_EQ(midiLog()[1].channel, 2);
   EXPECT_TRUE(midiLog()[1].usb);
+}
+
+TEST_F(MidiMessageTest, PresetOnExit_SendsCcMessagesOnly) {
+  StaticJsonDocument<512> doc;
+  deserializeJson(doc, R"({
+    "OnExit": {
+      "PC": [{"PC": 5, "Channel": 1}],
+      "CC": [
+        {"CC": 12, "Value": 0, "Channel": 2},
+        {"CC": 13, "Value": 127, "Channel": 3, "USB": true}
+      ]
+    }
+  })");
+
+  processPresetOnExit(doc.as<JsonObject>());
+
+  ASSERT_EQ(midiLog().size(), 2u);
+  EXPECT_EQ(midiLog()[0].type, MidiMessage::ControlChange);
+  EXPECT_EQ(midiLog()[0].value1, 12);
+  EXPECT_EQ(midiLog()[0].value2, 0);
+  EXPECT_EQ(midiLog()[0].channel, 2);
+  EXPECT_FALSE(midiLog()[0].usb);
+  EXPECT_EQ(midiLog()[1].type, MidiMessage::ControlChange);
+  EXPECT_EQ(midiLog()[1].value1, 13);
+  EXPECT_EQ(midiLog()[1].value2, 127);
+  EXPECT_EQ(midiLog()[1].channel, 3);
+  EXPECT_TRUE(midiLog()[1].usb);
+}
+
+TEST_F(MidiMessageTest, PresetOnExit_MissingOrNullOnExit_NoMessages) {
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, R"({"Name": "Empty", "OnExit": null})");
+
+  processPresetOnExit(doc.as<JsonObject>());
+
+  EXPECT_EQ(midiLog().size(), 0u);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

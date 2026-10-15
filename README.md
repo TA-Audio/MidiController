@@ -12,7 +12,7 @@ A feature-rich MIDI foot controller built on the **Teensy 4.1** platform. Design
 - The active preset index is saved to EEPROM so the controller remembers its position across power cycles.
 - Presets are prefetched in the direction of navigation for instant loading.
 - Invalid preset JSON displays an error; use **Next / Previous** to skip the preset.
-- Set top-level `BPM` and `SendMidiClock` fields to send preset MIDI Clock when no MIDI file is playing.
+- Set top-level `BPM` and `SendMidiClock` fields to send preset MIDI Clock, which continues at the preset tempo during MIDI file playback.
 
 ### Three Configurable Foot Switches
 Each preset defines up to three foot switch actions (`Switch1`, `Switch2`, `Switch3`):
@@ -26,12 +26,16 @@ Each preset defines up to three foot switch actions (`Switch1`, `Switch2`, `Swit
 ### On-Load Events
 Each preset can define `OnLoad` PC and CC messages that are sent automatically when the preset is selected — useful for switching amp channels, enabling default effects, etc.
 
+### On-Exit Events
+Each preset can define `OnExit` CC messages that are sent when navigating away to a different preset — useful for disabling effects or resetting equipment. On Exit supports Control Change messages only.
+
 ### MIDI File Playback
 - Assign a `.mid` file to a preset via the `FileInfo` key.
 - Switch 1 becomes **Play / Stop** for that file.
 - The selected MIDI file is prepared when its preset is loaded and stays ready between plays, reducing delay when Switch 1 starts playback.
 - Optional BPM override and output channel. If `FileInfo.BPM` is omitted or null, playback uses the tempo embedded in the MIDI file.
-- Set `FileInfo.SendMidiClock` to `true` to send MIDI Start, 24-PPQN Clock pulses, and MIDI Stop over DIN MIDI OUT during playback. The pulse rate follows the tempo currently used by the MIDI file player. MIDI-file Clock takes precedence over preset Clock; the preset Clock resumes when file playback stops or reaches EOF.
+- Set `FileInfo.SendMidiClock` to `true` to send MIDI Start and Stop over DIN MIDI OUT for file playback, plus 24-PPQN Clock pulses when no preset Clock is active. An active preset Clock takes precedence: its tempo and pulse schedule remain unchanged when the file starts, stops, or reaches EOF. File note playback still uses the file's own tempo or `FileInfo.BPM` override independently of the preset Clock.
+- File Start/Stop messages are still sent when `FileInfo.SendMidiClock` is `true`, even with preset Clock active. A receiving device may stop its sequencer on MIDI Stop despite continuing to receive preset Clock pulses.
 - Optional `StopCC` array to send CC messages when playback stops (e.g. silence a looper).
 
 ### MIDI I/O
@@ -91,6 +95,9 @@ Each preset is a `.json` file on the SD card root. Filenames should be numbered 
     "PC": [{ "PC": 5, "Channel": 1, "USB": false }],
     "CC": [{ "CC": 1, "Value": 127, "Channel": 1 }]
   },
+  "OnExit": {
+    "CC": [{ "CC": 1, "Value": 0, "Channel": 1 }]
+  },
   "Switch1": {
     "Name": "DRIVE",
     "Toggle": true,
@@ -142,9 +149,10 @@ When `FileInfo` is present, Switch 1 becomes a play/stop control for the specifi
 |---|---|---|
 | `Name` | string | Display name shown on the LCD. |
 | `BPM` | int | Tempo for preset MIDI Clock (1–65535); required when `SendMidiClock` is `true`. |
-| `SendMidiClock` | bool | If `true`, sends preset MIDI Start and 24-PPQN Clock over DIN MIDI OUT when no MIDI file is playing. Defaults to `false`. |
+| `SendMidiClock` | bool | If `true`, sends preset MIDI Start and 24-PPQN Clock over DIN MIDI OUT. Preset Clock continues at `BPM` during file playback and takes precedence over file Clock. Defaults to `false`. |
 | `OnLoad.PC[]` | array | Program Change messages sent when the preset loads. |
 | `OnLoad.CC[]` | array | Control Change messages sent when the preset loads. |
+| `OnExit.CC[]` | array | Control Change messages sent when navigating away from the preset. |
 | `Switch1/2/3.Name` | string | Label shown on the LCD for this switch. |
 | `Switch1/2/3.Toggle` | bool | If `true`, the switch alternates between on/off states. |
 | `Switch1/2/3.CC[]` | array | CC messages sent on press. In toggle mode, value is overridden to 127 (on) or 0 (off). |
@@ -152,7 +160,7 @@ When `FileInfo` is present, Switch 1 becomes a play/stop control for the specifi
 | `FileInfo.FileName` | string | Name of the `.mid` file on the SD card. |
 | `FileInfo.BPM` | int | Optional playback tempo override. If omitted or `null`, the tempo embedded in the MIDI file is used. |
 | `FileInfo.Channel` | int | MIDI output channel for file playback. |
-| `FileInfo.SendMidiClock` | bool | Optional. If `true`, sends MIDI Start/Clock/Stop over DIN MIDI OUT while the file is playing (24 clocks per quarter note). Defaults to `false`. |
+| `FileInfo.SendMidiClock` | bool | Optional. If `true`, sends MIDI Start/Stop for file playback and 24-PPQN Clock at the file playback tempo only when no preset Clock is active. Does not interrupt an active preset Clock. Defaults to `false`. |
 | `FileInfo.StopCC[]` | array | CC messages sent when playback stops. |
 | `*.USB` | bool | If `true`, the message is sent over USB Host MIDI instead of DIN. |
 | `*.Channel` | int | MIDI channel (1–16). |
@@ -197,7 +205,7 @@ arduino-cli upload  --fqbn teensy:avr:teensy41 -p <PORT> midicontroller/midicont
 A browser-based preset editor lives in [`preset-editor/`](preset-editor) and is published to GitHub Pages at **https://ta-audio.github.io/MidiController/**.
 
 - Click **Open preset folder** and choose the folder holding your preset `.json` files (e.g. the SD card root).
-- Edit every preset field with the form (name, BPM / MIDI Clock, MIDI file playback, On Load messages, and all three switches), or edit the raw JSON.
+- Edit every preset field with the form (name, BPM / MIDI Clock, MIDI file playback, On Load and On Exit messages, and all three switches), or edit the raw JSON.
 - An LCD preview and validation warnings show how the preset will look and flag out-of-range values.
 - Add, duplicate, rename, or delete presets, then **Save to folder** (or `Ctrl+S`) to write the changes back.
 - Direct folder saving requires a Chromium-based browser (Chrome / Edge). Other browsers can load presets and download the result as a zip.

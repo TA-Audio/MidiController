@@ -31,6 +31,7 @@ export interface Preset {
   BPM: number | null;
   SendMidiClock: boolean;
   OnLoad: { PC: PcMessage[]; CC: CcMessage[] };
+  OnExit: { CC: CcMessage[] };
   Switch1: SwitchConfig;
   Switch2: SwitchConfig;
   Switch3: SwitchConfig;
@@ -46,7 +47,7 @@ export const LCD_COLUMNS = 20;
 export const MAX_PRESETS = 150;
 export const DEFAULT_CHANNEL = 1;
 
-const KNOWN_KEYS = new Set(['Name', 'BPM', 'SendMidiClock', 'OnLoad', 'Switch1', 'Switch2', 'Switch3', 'FileInfo']);
+const KNOWN_KEYS = new Set(['Name', 'BPM', 'SendMidiClock', 'OnLoad', 'OnExit', 'Switch1', 'Switch2', 'Switch3', 'FileInfo']);
 
 type Json = Record<string, unknown>;
 
@@ -98,6 +99,7 @@ export function parsePreset(text: string): Preset {
   const raw: unknown = JSON.parse(text);
   if (!isObj(raw)) throw new Error('Preset file must contain a JSON object.');
   const onLoad = isObj(raw.OnLoad) ? raw.OnLoad : {};
+  const onExit = isObj(raw.OnExit) ? raw.OnExit : {};
   const extra: Json = {};
   for (const [k, v] of Object.entries(raw)) if (!KNOWN_KEYS.has(k)) extra[k] = v;
   return {
@@ -105,6 +107,7 @@ export function parsePreset(text: string): Preset {
     BPM: optNum(raw.BPM),
     SendMidiClock: raw.SendMidiClock === true,
     OnLoad: { PC: parsePcList(onLoad.PC), CC: parseCcList(onLoad.CC) },
+    OnExit: { CC: parseCcList(onExit.CC) },
     Switch1: parseSwitch(raw.Switch1),
     Switch2: parseSwitch(raw.Switch2),
     Switch3: parseSwitch(raw.Switch3),
@@ -138,6 +141,7 @@ export function serializePreset(p: Preset): string {
     };
   }
   out.OnLoad = { PC: pcOut(p.OnLoad.PC), CC: ccOut(p.OnLoad.CC) };
+  out.OnExit = { CC: ccOut(p.OnExit.CC) };
   for (const k of SWITCH_KEYS) out[k] = switchOut(p[k]);
   Object.assign(out, p.extra);
   return JSON.stringify(out, null, 2) + '\n';
@@ -150,6 +154,7 @@ export const newPreset = (name = 'New Preset'): Preset => ({
   BPM: null,
   SendMidiClock: false,
   OnLoad: { PC: [], CC: [] },
+  OnExit: { CC: [] },
   Switch1: emptySwitch(),
   Switch2: emptySwitch(),
   Switch3: emptySwitch(),
@@ -199,6 +204,7 @@ export function validatePreset(p: Preset): Issue[] {
 
   checkPc(p.OnLoad.PC, 'On Load', issues);
   checkCc(p.OnLoad.CC, 'On Load', issues);
+  checkCc(p.OnExit.CC, 'On Exit', issues);
   for (const k of SWITCH_KEYS) {
     checkPc(p[k].PC, k, issues);
     checkCc(p[k].CC, k, issues);

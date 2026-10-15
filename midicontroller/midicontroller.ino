@@ -30,6 +30,7 @@ int midiFileOutputChannel;
 bool playingMidiFile = false;
 bool stoppingMidiFile = false;
 bool midiFileLoaded = false;
+MidiFileClockMode activeMidiFileClockMode = MidiFileClockMode::Disabled;
 bool midiClockEnabled = false;
 bool midiClockForMidiFile = false;
 uint16_t midiClockTempo = 0;
@@ -473,8 +474,16 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
   }
 }
 
-FLASHMEM void stopMidiFile() {
-  stopMidiClock();
+FLASHMEM void stopMidiFile(bool changingPreset) {
+  const bool stopClock = midiClockForMidiFile || changingPreset;
+  const bool clockSendsStop = stopClock && midiClockEnabled;
+  if (stopClock) {
+    stopMidiClock();
+  }
+  if (activeMidiFileClockMode != MidiFileClockMode::Disabled && !clockSendsStop) {
+    MIDI1.sendStop();
+  }
+  activeMidiFileClockMode = MidiFileClockMode::Disabled;
   sendCcArray(activePreset["FileInfo"]["StopCC"]);
 }
 
@@ -532,7 +541,6 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
       return;
     }
 
-    stopMidiClock();
     midiFilePlayer.setTempo(120);
     const int tempoOverride = configuredMidiTempoOverride(
       fileInfo["BPM"].is<int>(), fileInfo["BPM"].as<int>());
@@ -545,8 +553,12 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
     playingMidiFile = true;
     const bool sendFileClock = fileInfo["SendMidiClock"].is<bool>() &&
       fileInfo["SendMidiClock"].as<bool>();
-    if (sendFileClock) {
+    activeMidiFileClockMode = midiFileClockMode(
+      sendFileClock, midiClockEnabled, midiClockForMidiFile);
+    if (activeMidiFileClockMode == MidiFileClockMode::ClockAndTransport) {
       startMidiClock(midiFilePlayer.getTempo(), true);
+    } else if (activeMidiFileClockMode == MidiFileClockMode::TransportOnly) {
+      MIDI1.sendStart();
     }
   } else {
     playingMidiFile = false;
@@ -650,9 +662,13 @@ FLASHMEM void changePreset() {
     currentPreset = 0;
   }
 
+  if (activePresetValid) {
+    sendCcArray(activePreset["OnExit"]["CC"]);
+  }
+
   const bool stopActiveMidiFile = playingMidiFile || stoppingMidiFile;
   if (stopActiveMidiFile && activePresetValid) {
-    stopMidiFile();
+    stopMidiFile(true);
   } else {
     stopMidiClock();
   }
@@ -853,10 +869,12 @@ void loop() {
     }
   } else {
     if (stoppingMidiFile) {
-      stopMidiFile();
+      stopMidiFile(false);
       stoppingMidiFile = false;
       playingMidiFile = false;
-      startPresetMidiClock();
+      if (!midiClockEnabled) {
+        startPresetMidiClock();
+      }
       requestPresetDisplayRefresh();
     }
   }
