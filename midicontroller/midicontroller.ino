@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "logic.h"
+#include "toggle_state.h"
 
 bool hasLoaded = false;
 bool switchToggled[switchCount] = {};
@@ -41,7 +42,8 @@ int presetNameScrollDirection = 1;
 unsigned long presetNameScrollStartMillis = 0;
 bool pendingDisplayRefresh = false;
 bool pendingPresetSave = false;
-int pendingPresetValue = 0;
+StoredControllerState bootControllerState = {};
+uint32_t activePresetSignature = 0;
 unsigned long eepromDirtyMillis = 0;
 int presetNavigationDirection = 1;
 int prefetchedPresetIndex = -1;
@@ -107,10 +109,20 @@ static inline void requestPresetDisplayRefresh() {
   pendingDisplayRefresh = true;
 }
 
-static inline void queuePresetSave(int value) {
-  pendingPresetValue = value;
+static inline void queuePresetSave() {
   pendingPresetSave = true;
   eepromDirtyMillis = currentMillis;
+}
+
+static void saveControllerStateNow() {
+  uint8_t mask = 0;
+  for (int i = 0; i < switchCount; ++i) {
+    if (switchToggled[i]) mask |= 1 << i;
+  }
+  StoredControllerState state = makeControllerState(
+    currentPreset, activePresetValid ? activePresetSignature : 0, mask);
+  writeControllerState(EEPROM, state);
+  pendingPresetSave = false;
 }
 
 static void commitPendingEepromWrites() {
@@ -118,8 +130,7 @@ static void commitPendingEepromWrites() {
     return;
   }
 
-  EEPROM.put(presetEepromAddress, pendingPresetValue);
-  pendingPresetSave = false;
+  saveControllerStateNow();
 }
 
 static void servicePresetDisplayRefresh() {
@@ -461,19 +472,15 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
 
   if (action == SwitchAction::NavigateNext) {
     presetNavigationDirection = 1;
-    if (!canNavigateNext(currentPreset, presetCount)) {
-      return;
-    }
-    currentPreset++;
-    changePreset();
   } else if (action == SwitchAction::NavigatePrev) {
     presetNavigationDirection = -1;
-    if (!canNavigatePrev(currentPreset)) {
-      return;
-    }
-    currentPreset--;
-    changePreset();
+  } else {
+    return;
   }
+  const int target = adjacentPresetIndex(currentPreset, presetCount, presetNavigationDirection);
+  if (target < 0 || target == currentPreset) return;
+  currentPreset = target;
+  changePreset();
 }
 
 FLASHMEM void stopMidiFile(bool changingPreset) {
@@ -643,6 +650,7 @@ void executeSwitchLogic(int switchNo) {
 
     if (useToggleValue) {
       switchToggled[switchNo - 1] = nextToggleState;
+      saveControllerStateNow();
     }
   }
 
@@ -659,6 +667,7 @@ FLASHMEM void changePreset() {
   }
 
   if (presetCount <= 0) {
+    bootControllerState.magic = 0;
     showError("No presets found", "Add .json files to SD");
     return;
   }
@@ -689,6 +698,8 @@ FLASHMEM void changePreset() {
 
   if (!applyPresetByIndex(currentPreset)) {
     activePresetValid = false;
+    bootControllerState.magic = 0;
+    queuePresetSave();
     showError("Preset load error", "Next/Prev to skip");
     setUiMessageTimeout();
     return;
@@ -696,6 +707,12 @@ FLASHMEM void changePreset() {
 
   activePreset = presetDoc;
   activePresetValid = true;
+  activePresetSignature = presetStateSignature(presetList[currentPreset], activePreset);
+  const bool restoreBootState = validControllerState(bootControllerState, presetCount) &&
+    bootControllerState.presetIndex == static_cast<uint32_t>(currentPreset) &&
+    bootControllerState.presetSignature == activePresetSignature;
+  const uint8_t bootMask = consumeBootToggleMask(
+    bootControllerState, currentPreset, activePresetSignature, presetCount);
 
   JsonObject fileInfo = activePreset["FileInfo"];
   if (!fileInfo.isNull()) {
@@ -705,9 +722,13 @@ FLASHMEM void changePreset() {
   sendPcArray(activePreset["OnLoad"]["PC"]);
   sendCcArray(activePreset["OnLoad"]["CC"]);
 
+  if (restoreBootState) {
+    restoreToggleStates(activePreset, bootMask, switchToggled, sendControlChange);
+  }
+
   setPresetDisplayInfo();
   startPresetMidiClock();
-  queuePresetSave(currentPreset);
+  queuePresetSave();
   queueDirectionalPresetPrefetch();
 }
 
@@ -829,8 +850,10 @@ FLASHMEM void setup() {
   loadPresetList();
 
   EEPROM.get(presetEepromAddress, currentPreset);
-
-  currentPreset = validateStoredPreset(currentPreset, maxPresetListSize);
+  EEPROM.get(controllerStateEepromAddress, bootControllerState);
+  currentPreset = validControllerState(bootControllerState, presetCount)
+    ? static_cast<int>(bootControllerState.presetIndex)
+    : validateStoredPreset(currentPreset, presetCount);
 
   startMillis = millis();
 }

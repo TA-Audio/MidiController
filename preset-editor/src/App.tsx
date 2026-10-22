@@ -1,36 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Preset } from './preset';
-import { MAX_PRESETS, compareFileNames, newPreset, nextFileName, parsePreset, serializePreset, validatePreset } from './preset';
+import { MAX_PRESETS, newPreset, parsePreset, serializePreset, validatePreset } from './preset';
 import type { FolderSource } from './folder';
-import { deleteFile, downloadZip, ensureWritable, pickFolder, readDirectory, readFileList, supportsDirectoryAccess, writeFile } from './folder';
+import { downloadZip, pickFolder, readDirectory, readFileList, saveNumberedFiles, supportsDirectoryAccess } from './folder';
 import { PresetEditor } from './PresetEditor';
-
-interface Entry {
-  id: string;
-  fileName: string;
-  /** Name of the file on disk, or null if not yet saved. */
-  diskName: string | null;
-  /** Content considered "clean" (normalized for valid presets, raw for invalid ones). */
-  baseline: string | null;
-  preset: Preset | null;
-  rawText: string;
-  parseError: string | null;
-}
-
-let idCounter = 0;
-const newId = () => `p${++idCounter}`;
-
-function entryFromFile(name: string, text: string): Entry {
-  try {
-    const preset = parsePreset(text);
-    return { id: newId(), fileName: name, diskName: name, baseline: serializePreset(preset), preset, rawText: text, parseError: null };
-  } catch (e) {
-    return { id: newId(), fileName: name, diskName: name, baseline: text, preset: null, rawText: text, parseError: (e as Error).message };
-  }
-}
-
-const contentOf = (e: Entry) => (e.preset ? serializePreset(e.preset) : e.rawText);
-const isDirty = (e: Entry) => e.diskName !== e.fileName || contentOf(e) !== e.baseline;
+import type { Entry } from './entries';
+import { contentOf, entryFromFile, isDirty, loadEntries, moveEntry, newId, numberEntries, obsoleteFileNames } from './entries';
 
 export default function App() {
   const [folder, setFolder] = useState<FolderSource | null>(null);
@@ -40,9 +15,10 @@ export default function App() {
   const [filter, setFilter] = useState('');
   const [status, setStatus] = useState<{ kind: 'info' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropId, setDropId] = useState<string | null>(null);
   const fallbackInput = useRef<HTMLInputElement>(null);
 
-  const sorted = useMemo(() => [...entries].sort((a, b) => compareFileNames(a.fileName, b.fileName)), [entries]);
   const selected = entries.find((e) => e.id === selectedId) ?? null;
   const dirtyCount = entries.filter(isDirty).length + removed.length;
 
@@ -55,11 +31,14 @@ export default function App() {
   }, [dirtyCount]);
 
   const load = (src: FolderSource) => {
-    const list = src.presetFiles.map((f) => entryFromFile(f.name, f.text)).sort((a, b) => compareFileNames(a.fileName, b.fileName));
+    const list = loadEntries(src.presetFiles);
     setFolder(src);
     setEntries(list);
     setRemoved([]);
     setSelectedId(list[0]?.id ?? null);
+    setFilter('');
+    setDragId(null);
+    setDropId(null);
     const invalid = list.filter((e) => e.parseError).length;
     setStatus({
       kind: 'info',
@@ -104,7 +83,7 @@ export default function App() {
   const addEntry = (preset: Preset) => {
     const entry: Entry = {
       id: newId(),
-      fileName: nextFileName(entries.map((e) => e.fileName)),
+      fileName: `${entries.length + 1}.json`,
       diskName: null,
       baseline: null,
       preset,
@@ -123,52 +102,41 @@ export default function App() {
 
   const remove = () => {
     if (!selected || !window.confirm(`Delete ${selected.fileName}? The file is removed from the folder when you save.`)) return;
-    const idx = sorted.findIndex((e) => e.id === selected.id);
+    const idx = entries.findIndex((e) => e.id === selected.id);
     if (selected.diskName) setRemoved((r) => [...r, selected.diskName!]);
-    setEntries((list) => list.filter((e) => e.id !== selected.id));
-    const next = sorted[idx + 1] ?? sorted[idx - 1];
+    setEntries((list) => numberEntries(list.filter((e) => e.id !== selected.id)));
+    const next = entries[idx + 1] ?? entries[idx - 1];
     setSelectedId(next && next.id !== selected.id ? next.id : null);
-  };
-
-  const fileNameError = (e: Entry): string | null => {
-    if (!/^[^\\/:*?"<>|]+\.json$/i.test(e.fileName)) return 'File name must end in .json and contain no path characters.';
-    if (entries.some((o) => o.id !== e.id && o.fileName.toLowerCase() === e.fileName.toLowerCase())) return 'Another preset already uses this file name.';
-    return null;
   };
 
   const save = async () => {
     if (!folder || busy) return;
-    const problems = entries.filter((e) => fileNameError(e));
-    if (problems.length) {
-      setSelectedId(problems[0].id);
-      setStatus({ kind: 'error', text: `Fix the file name of ${problems[0].fileName} before saving.` });
-      return;
-    }
     const withErrors = entries.filter((e) => e.preset && validatePreset(e.preset).some((i) => i.level === 'error'));
     if (withErrors.length && !window.confirm(`${withErrors.length} preset(s) have errors (e.g. ${withErrors[0].fileName}). Save anyway?`)) return;
 
     setBusy(true);
+    const files = entries.map((e) => ({ name: e.fileName, text: contentOf(e) }));
+    const obsolete = obsoleteFileNames(entries, [...removed, ...folder.presetFiles.map((f) => f.name)]);
     try {
       if (folder.handle) {
-        await ensureWritable(folder.handle);
-        const dirty = entries.filter(isDirty);
-        for (const e of dirty) await writeFile(folder.handle, e.fileName, contentOf(e));
-        const current = new Set(entries.map((e) => e.fileName.toLowerCase()));
-        const stale = [...removed, ...dirty.filter((e) => e.diskName && e.diskName !== e.fileName).map((e) => e.diskName!)];
-        const toDelete = [...new Set(stale)].filter((n) => !current.has(n.toLowerCase()));
-        for (const n of toDelete) await deleteFile(folder.handle, n);
-        setStatus({ kind: 'info', text: `Saved ${dirty.length} file(s)${toDelete.length ? ` and deleted ${toDelete.length}` : ''} to “${folder.name}”.` });
+        const deleted = await saveNumberedFiles(folder.handle, files, obsolete);
+        setStatus({ kind: 'info', text: `Saved ${files.length} numbered file(s)${deleted ? ` and deleted ${deleted} obsolete file(s)` : ''} to “${folder.name}”.` });
       } else {
-        await downloadZip(folder.name, sorted.map((e) => ({ name: e.fileName, text: contentOf(e) })));
+        await downloadZip(folder.name, files);
         setStatus({
           kind: 'info',
-          text: `Downloaded ${folder.name}.zip with ${entries.length} preset(s). Your browser can't write to folders directly — extract the zip over the folder${removed.length ? ` and delete: ${removed.join(', ')}` : ''}.`,
+          text: `Downloaded ${folder.name}.zip with ${entries.length} numbered preset(s). Your browser can't write to folders directly. ${obsolete.length ? `Before extracting the zip, delete these obsolete preset files: ${obsolete.join(', ')}. Then extract` : 'Extract'} the zip over the folder. Keep your MIDI files.`,
         });
       }
+      setFolder({
+        ...folder,
+        presetFiles: folder.handle ? files : [...new Map([...folder.presetFiles, ...files].map((f) => [f.name, f])).values()],
+      });
       setEntries((list) => list.map((e) => ({ ...e, diskName: e.fileName, baseline: contentOf(e) })));
       setRemoved([]);
     } catch (e) {
-      setStatus({ kind: 'error', text: `Save failed: ${(e as Error).message}` });
+      if (folder.handle) setRemoved((list) => [...new Set([...list, ...files.map((f) => f.name)])]);
+      setStatus({ kind: 'error', text: `Save failed: ${(e as Error).message}. Some files may already have been written. Your changes are still unsaved; retry saving before reloading.` });
     } finally {
       setBusy(false);
     }
@@ -190,8 +158,13 @@ export default function App() {
   }, []);
 
   const q = filter.trim().toLowerCase();
-  const visible = q ? sorted.filter((e) => e.fileName.toLowerCase().includes(q) || (e.preset?.Name ?? '').toLowerCase().includes(q)) : sorted;
-  const selectedNameError = selected ? fileNameError(selected) : null;
+  const visible = q ? entries.filter((e) => e.fileName.toLowerCase().includes(q) || (e.preset?.Name ?? '').toLowerCase().includes(q)) : entries;
+  const selectedIndex = entries.findIndex((e) => e.id === selectedId);
+  const canReorder = !busy && q.length === 0;
+  const reorder = (id: string, target: number) => {
+    if (!canReorder) return;
+    setEntries((list) => moveEntry(list, id, target));
+  };
 
   return (
     <div className="app">
@@ -260,16 +233,37 @@ export default function App() {
             <div className="sidebar-tools">
               <input type="search" placeholder="Filter presets…" value={filter} onChange={(e) => setFilter(e.target.value)} />
               <div className="row">
-                <button type="button" className="small" onClick={() => addEntry(newPreset())}>
+                <button type="button" className="small" onClick={() => addEntry(newPreset())} disabled={busy}>
                   + New
                 </button>
-                <button type="button" className="small secondary" onClick={duplicate} disabled={!selected?.preset}>
+                <button type="button" className="small secondary" onClick={duplicate} disabled={busy || !selected?.preset}>
                   Duplicate
                 </button>
-                <button type="button" className="small danger" onClick={remove} disabled={!selected}>
+                <button type="button" className="small danger" onClick={remove} disabled={busy || !selected}>
                   Delete
                 </button>
               </div>
+              <div className="row">
+                <button
+                  type="button"
+                  className="small secondary"
+                  disabled={!canReorder || selectedIndex <= 0}
+                  onClick={() => selectedId && reorder(selectedId, selectedIndex - 1)}
+                >
+                  Move up
+                </button>
+                <button
+                  type="button"
+                  className="small secondary"
+                  disabled={!canReorder || selectedIndex < 0 || selectedIndex >= entries.length - 1}
+                  onClick={() => selectedId && reorder(selectedId, selectedIndex + 1)}
+                >
+                  Move down
+                </button>
+              </div>
+              <p className="hint small-text">
+                {q ? 'Clear the filter to reorder presets.' : 'Drag a preset to reorder, or select it and use Move up/down. Files save as 1.json, 2.json, etc.'}
+              </p>
               <p className="muted small-text">
                 {entries.length} preset{entries.length === 1 ? '' : 's'}
                 {entries.length > MAX_PRESETS && <span className="over"> — only the first {MAX_PRESETS} load on the device</span>}
@@ -279,8 +273,39 @@ export default function App() {
               {visible.map((e) => {
                 const hasError = e.parseError !== null || (e.preset !== null && validatePreset(e.preset).some((i) => i.level === 'error'));
                 return (
-                  <li key={e.id}>
-                    <button type="button" className={e.id === selectedId ? 'selected' : ''} onClick={() => setSelectedId(e.id)}>
+                  <li
+                    key={e.id}
+                    className={`${dragId === e.id ? 'dragging' : ''} ${dropId === e.id ? 'drop-target' : ''}`}
+                    draggable={canReorder}
+                    onDragStart={(ev) => {
+                      if (!canReorder) {
+                        ev.preventDefault();
+                        return;
+                      }
+                      ev.dataTransfer.setData('text/plain', e.id);
+                      ev.dataTransfer.effectAllowed = 'move';
+                      setDragId(e.id);
+                    }}
+                    onDragOver={(ev) => {
+                      if (!canReorder || !dragId || dragId === e.id) return;
+                      ev.preventDefault();
+                      ev.dataTransfer.dropEffect = 'move';
+                      setDropId(e.id);
+                    }}
+                    onDrop={(ev) => {
+                      ev.preventDefault();
+                      if (dragId && ev.dataTransfer.getData('text/plain') === dragId) {
+                        reorder(dragId, entries.findIndex((entry) => entry.id === e.id));
+                      }
+                      setDragId(null);
+                      setDropId(null);
+                    }}
+                    onDragEnd={() => {
+                      setDragId(null);
+                      setDropId(null);
+                    }}
+                  >
+                    <button type="button" className={e.id === selectedId ? 'selected' : ''} onClick={() => setSelectedId(e.id)} disabled={busy}>
                       <span className="file">{e.fileName.replace(/\.json$/i, '')}</span>
                       <span className="name">{e.preset ? e.preset.Name || <em>Unnamed</em> : <em>Invalid JSON</em>}</span>
                       {hasError && (
@@ -305,29 +330,20 @@ export default function App() {
             {!selected ? (
               <p className="muted pad">Select a preset or create a new one.</p>
             ) : (
-              <>
+              <fieldset className="preset-fields" disabled={busy}>
                 <div className="file-bar">
                   <label className="field">
                     <span>File name</span>
-                    <input
-                      type="text"
-                      className={selectedNameError ? 'invalid' : undefined}
-                      value={selected.fileName}
-                      onChange={(ev) => updateEntry(selected.id, { fileName: ev.target.value })}
-                    />
+                    <input type="text" value={selected.fileName} readOnly />
                   </label>
-                  {selectedNameError && <span className="error">{selectedNameError}</span>}
-                  {!selectedNameError && Number.isNaN(parseInt(selected.fileName, 10)) && (
-                    <span className="hint">Use a numeric file name (e.g. 12.json) to control the order on the device.</span>
-                  )}
-                  {isDirty(selected) && selected.diskName && (
+                  <span className="hint">File number follows the preset order. The display name is edited below.</span>
+                  {contentOf(selected) !== selected.baseline && selected.diskName && (
                     <button
                       type="button"
                       className="small secondary"
                       onClick={() => {
                         const original = entryFromFile(selected.diskName!, selected.baseline ?? '');
                         updateEntry(selected.id, {
-                          fileName: selected.diskName!,
                           preset: original.preset,
                           rawText: original.rawText,
                           parseError: original.parseError,
@@ -372,7 +388,7 @@ export default function App() {
                     </div>
                   </section>
                 )}
-              </>
+              </fieldset>
             )}
           </main>
         </div>

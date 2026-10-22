@@ -236,11 +236,6 @@ export function compareFileNames(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true });
 }
 
-export function nextFileName(existing: string[]): string {
-  const max = existing.reduce((m, f) => Math.max(m, parseInt(f, 10) || 0), 0);
-  return `${max + 1}.json`;
-}
-
 export function lcdSwitchRow(p: Preset): string {
   const [a, b, c] = SWITCH_KEYS.map((k) => switchLabel(p, k));
   const total = a.length + b.length + c.length;

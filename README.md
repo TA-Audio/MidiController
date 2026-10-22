@@ -7,7 +7,7 @@ A feature-rich MIDI foot controller built on the **Teensy 4.1** platform. Design
 ### Preset System
 - Presets are stored as individual `.json` files on a micro-SD card.
 - Up to **150 presets** are loaded at boot, sorted numerically by filename (e.g. `1.json`, `2.json`, …).
-- Navigate presets with dedicated **Next / Previous** foot switches.
+- Navigate presets with dedicated **Next / Previous** foot switches. Previous from the first preset wraps to the last, and Next from the last wraps to the first.
 - Navigation happens on release, regardless of how long the switch is held.
 - The active preset index is saved to EEPROM so the controller remembers its position across power cycles.
 - Presets are prefetched in the direction of navigation for instant loading.
@@ -22,6 +22,10 @@ Each preset defines up to three foot switch actions (`Switch1`, `Switch2`, `Swit
 | **Program Change** | Send one or more PC messages on any MIDI channel, via DIN or USB. |
 | **Control Change** | Send one or more CC messages on any MIDI channel, via DIN or USB. |
 | **Toggle Mode** | A switch can be configured as a toggle — alternating between on (CC 127) and off (CC 0) with each press. The LCD shows `On!` / `Off!` indicators and a `*` marker on the display row. |
+
+The current preset's toggle states are saved to EEPROM immediately when a toggle changes. On power-up, the controller restores those states and sends their matching CC 127/0 messages **after** the normal OnLoad messages. It does not replay switch PC messages or resume MIDI file playback. Changing presets resets all toggles; returning to a preset does not restore its previous toggles.
+
+Saved toggle states are used only if the preset filename and configuration still match. Older firmware's saved preset position remains compatible, with toggles initially Off. Immediate saving removes the deliberate save delay, but power loss during an EEPROM write can still prevent restoration.
 
 ### On-Load Events
 Each preset can define `OnLoad` PC and CC messages that are sent automatically when the preset is selected — useful for switching amp channels, enabling default effects, etc.
@@ -207,8 +211,13 @@ A browser-based preset editor lives in [`preset-editor/`](preset-editor) and is 
 - Click **Open preset folder** and choose the folder holding your preset `.json` files (e.g. the SD card root).
 - Edit every preset field with the form (name, BPM / MIDI Clock, MIDI file playback, On Load and On Exit messages, and all three switches), or edit the raw JSON.
 - An LCD preview and validation warnings show how the preset will look and flag out-of-range values.
-- Add, duplicate, rename, or delete presets, then **Save to folder** (or `Ctrl+S`) to write the changes back.
+- Add, duplicate, change display names, or delete presets, then **Save to folder** (or `Ctrl+S`) to write the changes back.
+- Drag presets in the sidebar to change their order, or select a preset and use **Move up / Move down** (also works with keyboard and touch). Clear the filter before reordering.
+- Every save numbers preset files consecutively as `1.json`, `2.json`, `3.json`, etc., in sidebar order, regardless of their original filenames. Display names are preserved. New and duplicate presets append to the list; deleting a preset closes numbering gaps.
+- Direct saves write the numbered presets before removing obsolete preset files. MIDI files are left untouched. A failed save can be partial; keep the editor open and retry saving before reloading.
 - Direct folder saving requires a Chromium-based browser (Chrome / Edge). Other browsers can load presets and download the result as a zip.
+- ZIP downloads use the same numbered filenames. Before extracting, remove the obsolete preset filenames listed by the editor so old presets are not loaded alongside the new numbered ones; keep your MIDI files.
+- On case-insensitive SD cards, an existing filename's capitalization may be preserved; the firmware accepts `.json` extensions in any letter case.
 
 Run it locally:
 
@@ -217,6 +226,8 @@ cd preset-editor
 npm install
 npm run dev
 ```
+
+Run the editor's ordering and folder/ZIP save tests with `npm test` (Node.js 22.6 or newer), and check the production build with `npm run build`.
 
 ## CI
 
