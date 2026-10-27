@@ -1,6 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decodePacket, encodePacket, LIVE_CHUNK_BYTES, LiveMidiClient, presetRevision, presetSetRevision } from '../src/liveMidi.ts';
+import { matchMidiPort, MIDI_SETTINGS_KEY, portIdentity, readMidiSettings } from '../src/midiSettings.ts';
+
+test('MIDI settings round-trip only port identities and reject malformed stored data', () => {
+  const port = { id: 'input-1', name: 'Teensy MIDI', manufacturer: 'PJRC', state: 'connected' };
+  const settings = { input: portIdentity(port), output: null };
+  assert.deepEqual(settings.input, { id: 'input-1', name: 'Teensy MIDI', manufacturer: 'PJRC' });
+  assert.deepEqual(readMidiSettings({ getItem: (key) => { assert.equal(key, MIDI_SETTINGS_KEY); return JSON.stringify(settings); } }), settings);
+  assert.deepEqual(readMidiSettings({ getItem: () => null }), { input: null, output: null });
+  for (const text of ['bad JSON', 'null', '{}', '{"input":{"id":1},"output":null}']) {
+    assert.throws(() => readMidiSettings({ getItem: () => text }));
+  }
+  assert.throws(() => readMidiSettings({ getItem: () => { throw new Error('Storage disabled'); } }), /Storage disabled/);
+});
+
+test('MIDI ports restore by ID then unique identity, without selecting disconnected or ambiguous devices', () => {
+  const port = { id: 'old', name: 'Teensy MIDI', manufacturer: 'PJRC', state: 'connected' };
+  const replacement = { ...port, id: 'new' };
+  assert.equal(matchMidiPort([port, replacement], port), port);
+  assert.equal(matchMidiPort([replacement], port), replacement);
+  assert.equal(matchMidiPort([{ ...replacement, state: 'disconnected' }], port), undefined);
+  assert.equal(matchMidiPort([replacement, { ...replacement, id: 'another' }], port), undefined);
+  assert.equal(matchMidiPort([{ ...replacement, manufacturer: 'Unknown' }], port), undefined);
+  assert.equal(matchMidiPort([replacement], null), replacement);
+  assert.equal(matchMidiPort([{ ...replacement, name: 'Piano' }], null), undefined);
+  assert.equal(matchMidiPort([port, replacement], null), undefined);
+});
 
 class MockPort extends EventTarget {
   state = 'connected';

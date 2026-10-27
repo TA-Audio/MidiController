@@ -63,7 +63,7 @@ Each preset can define `OnExit` CC messages that are sent when navigating away t
 | **USB Host MIDI** | Output | PC and CC messages when `"USB": true` in the preset. |
 | **USB Computer MIDI** | Bidirectional | PC/CC to a computer/DAW when `"USBDevice": true`; SysEx for live editing. Requires a USB MIDI firmware build. |
 
-Use only one USB destination per message. Neither flag means DIN output. USB Computer does not merge incoming DAW notes or implement an incoming remote-control mapping; use your DAW's MIDI mapping for outgoing PC/CC.
+Use only one explicit USB destination per message. Neither flag means DIN output, automatically mirrored to the computer USB MIDI port whenever it is enumerated by a host. This mirror includes preset/footswitch PC/CC, MIDI-file channel events, clock/transport, and incoming DIN passthrough (including SysEx). DIN output continues when USB is disconnected; USB mirroring requires a USB MIDI firmware build. `"USB": true` remains USB Host-only, and `"USBDevice": true` remains computer-only without a second mirrored copy. USB Computer does not merge incoming DAW notes or implement an incoming remote-control mapping; use your DAW's MIDI mapping for outgoing PC/CC. Avoid routing the mirrored output back into a physical MIDI input, which can create a MIDI feedback loop.
 
 ### Display
 - **20×4 I2C LCD** (address `0x27`).
@@ -273,6 +273,8 @@ Run the editor's ordering, folder/ZIP, performance schema and live MIDI transpor
 ### Live USB Editing
 
 Connect the Teensy's **device USB port** to your computer with Serial + MIDI firmware, then expand **Live USB editor and DAW connection**. In Chrome/Edge over HTTPS or localhost, enable MIDI access (including SysEx), choose the matching Synapse input/output ports, and Connect. Stop MIDI file playback before loading or saving.
+
+The website remembers the input/output ports in this browser and automatically connects when the remembered controller appears. It first matches saved port IDs, then a unique name/manufacturer if the browser changes the IDs. With no saved selection, a single Teensy/Synapse input/output pair can be detected automatically; ambiguous devices require manual selection. Once SysEx permission is granted, future visits restore MIDI access without prompting. The first visit, revoked permission, or a browser without permission-query support still requires **Enable USB MIDI access**. Unplugging/replugging reconnects without discarding unsaved edits. **Disconnect** pauses automatic connection for the current page; the automatic-connection checkbox can re-enable it. Device preferences are local to the browser/site, not stored on the controller.
 
 Connecting loads the complete preset set, including presets with invalid JSON so they can be repaired or deleted. Use **New preset**, **Duplicate preset**, **Delete preset**, drag-and-drop, or **Move up/down** to manage up to 150 presets without removing the SD card. Reordering is disabled while filtering. Changes stay local until **Save all to controller**, which writes `1.json`, `2.json`, etc. in list order and removes obsolete preset files while preserving preset display names and all MIDI files. Deleting all presets requires an additional confirmation; an empty controller can be populated over USB too. Invalid presets must be fixed or removed before saving. Keep the controller connected until saving finishes.
 

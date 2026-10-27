@@ -3,6 +3,132 @@
 #include "logic.h"
 #include "midi_mock.h"
 
+namespace outputTests {
+namespace midi {
+enum MidiType : uint8_t {
+  NoteOff = 0x80, NoteOn = 0x90, ControlChange = 0xb0, ProgramChange = 0xc0,
+  AfterTouchChannel = 0xd0, PitchBend = 0xe0, SystemExclusive = 0xf0,
+  TimeCodeQuarterFrame = 0xf1, SongPosition = 0xf2, SongSelect = 0xf3,
+  TuneRequest = 0xf6, Clock = 0xf8, Start = 0xfa, Stop = 0xfc
+};
+}
+struct Message {
+  uint8_t type, data1, data2, channel;
+};
+struct Wire {
+  std::vector<Message> messages;
+  std::vector<uint8_t> sysex;
+  void send(uint8_t type, uint8_t data1, uint8_t data2, uint8_t channel, uint8_t = 0) {
+    messages.push_back({type, data1, data2, channel});
+  }
+  void sendCommon(uint8_t type, unsigned data) { send(type, data & 127, data >> 7, 0); }
+  void sendSysEx(unsigned length, const uint8_t *bytes, bool) { sysex.assign(bytes, bytes + length); }
+} MIDI1, usbMIDI;
+uint8_t usb_configuration = 0;
+#define USB_MIDI_SERIAL
+#include "midi_output.h"
+#undef USB_MIDI_SERIAL
+
+TEST(MidiOutput, DinAlwaysSendsAndUsbOnlyMirrorsWhenEnumerated) {
+  MIDI1 = {};
+  usbMIDI = {};
+  usb_configuration = 0;
+  sendDinMidi(midi::ControlChange, 64, 127, 3);
+  EXPECT_EQ(MIDI1.messages.size(), 1u);
+  EXPECT_TRUE(usbMIDI.messages.empty());
+  usb_configuration = 1;
+  for (auto type : {midi::NoteOn, midi::NoteOff, midi::ProgramChange, midi::AfterTouchChannel,
+                    midi::PitchBend, midi::ControlChange}) {
+    sendDinMidi(type, 12, 34, 16);
+    const auto &din = MIDI1.messages.back();
+    const auto &usb = usbMIDI.messages.back();
+    EXPECT_EQ(din.type, usb.type);
+    EXPECT_EQ(din.data1, usb.data1);
+    EXPECT_EQ(din.data2, usb.data2);
+    EXPECT_EQ(din.channel, usb.channel);
+  }
+  EXPECT_EQ(MIDI1.messages.size(), 7u);
+  EXPECT_EQ(usbMIDI.messages.size(), 6u);
+}
+
+TEST(MidiOutput, ClockTransportAndSystemCommonReachBothOutputsExactlyOnce) {
+  MIDI1 = {};
+  usbMIDI = {};
+  usb_configuration = 1;
+  for (auto type : {midi::Clock, midi::Start, midi::Stop, midi::TimeCodeQuarterFrame,
+                    midi::SongPosition, midi::SongSelect, midi::TuneRequest}) {
+    sendDinMidi(type, 42, type == midi::SongPosition ? 7 : 0);
+    EXPECT_EQ(MIDI1.messages.back().type, type);
+    EXPECT_EQ(usbMIDI.messages.back().type, type);
+    EXPECT_EQ(MIDI1.messages.back().data1, usbMIDI.messages.back().data1);
+    EXPECT_EQ(MIDI1.messages.back().data2, usbMIDI.messages.back().data2);
+  }
+  EXPECT_EQ(MIDI1.messages.size(), 7u);
+  EXPECT_EQ(usbMIDI.messages.size(), 7u);
+}
+
+TEST(MidiOutput, PassthroughPreservesChannelMessagesAndFramedSysex) {
+  struct Input {
+    int remaining = 1;
+    midi::MidiType type = midi::NoteOn;
+    uint8_t bytes[5] = {0xf0, 0x7d, 1, 2, 0xf7};
+    bool read() { return remaining-- > 0; }
+    midi::MidiType getType() { return type; }
+    uint8_t getData1() { return 60; }
+    uint8_t getData2() { return 100; }
+    uint8_t getChannel() { return 2; }
+    unsigned getSysExArrayLength() { return sizeof(bytes); }
+    const uint8_t *getSysExArray() { return bytes; }
+  } input;
+  MIDI1 = {};
+  usbMIDI = {};
+  usb_configuration = 1;
+  forwardMidiInput(input);
+  ASSERT_EQ(MIDI1.messages.size(), 1u);
+  ASSERT_EQ(usbMIDI.messages.size(), 1u);
+  EXPECT_EQ(usbMIDI.messages[0].channel, 2);
+  EXPECT_EQ(usbMIDI.messages[0].data1, 60);
+  input.remaining = 1;
+  input.type = midi::SystemExclusive;
+  forwardMidiInput(input);
+  EXPECT_EQ(MIDI1.sysex, (std::vector<uint8_t>{0xf0, 0x7d, 1, 2, 0xf7}));
+  EXPECT_EQ(MIDI1.sysex, usbMIDI.sysex);
+  usbMIDI.sysex.clear();
+  usb_configuration = 0;
+  input.remaining = 1;
+  forwardMidiInput(input);
+  EXPECT_TRUE(usbMIDI.sysex.empty());
+}
+
+TEST(MidiOutput, FileEventsPreserveDinBytesAndMirrorConfiguredChannelAndMessageSize) {
+  struct Serial {
+    std::vector<uint8_t> bytes;
+    size_t write(uint8_t byte) { bytes.push_back(byte); return 1; }
+    size_t write(const uint8_t *data, size_t count) {
+      bytes.insert(bytes.end(), data, data + count);
+      return count;
+    }
+  } serial;
+  struct Event { uint8_t data[3]; uint8_t size; };
+  usbMIDI = {};
+  usb_configuration = 1;
+  EXPECT_EQ(sendMidiFileEvent(serial, Event{{0x90, 60, 127}, 3}, 16), 3u);
+  EXPECT_EQ(serial.bytes, (std::vector<uint8_t>{0x9f, 60, 127}));
+  ASSERT_EQ(usbMIDI.messages.size(), 1u);
+  EXPECT_EQ(usbMIDI.messages.back().channel, 16);
+  EXPECT_EQ(usbMIDI.messages.back().data2, 127);
+  EXPECT_EQ(sendMidiFileEvent(serial, Event{{0xc0, 5, 99}, 2}, 2), 2u);
+  EXPECT_EQ(usbMIDI.messages.back().data2, 0);
+  EXPECT_EQ(usbMIDI.messages.back().type, 0xc0);
+  EXPECT_EQ(serial.bytes, (std::vector<uint8_t>{0x9f, 60, 127, 0xc1, 5}));
+  EXPECT_EQ(sendMidiFileEvent(serial, Event{{0xf0, 5, 0}, 2}, 2), 0u);
+  EXPECT_EQ(usbMIDI.messages.size(), 2u);
+  usb_configuration = 0;
+  EXPECT_EQ(sendMidiFileEvent(serial, Event{{0x80, 60, 0}, 3}, 2), 3u);
+  EXPECT_EQ(usbMIDI.messages.size(), 2u);
+}
+} // namespace outputTests
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Helpers — replicate firmware logic using mock sends
 // ═══════════════════════════════════════════════════════════════════════════════
