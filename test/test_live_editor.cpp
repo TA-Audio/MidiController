@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <map>
 #include <string>
+#include <deque>
+#include <vector>
 #include "performance_validation.h"
 
 namespace {
@@ -13,11 +15,12 @@ int failRename = 0;
 int failRemove = 0;
 bool failSync = false;
 uint32_t now = 0;
+uint32_t storageDelay = 0;
 uint32_t millis() { return now; }
 using std::min;
 
 struct FakeSD {
-  bool exists(const char *name) { return files.count(name) != 0; }
+  bool exists(const char *name) { now += storageDelay; return files.count(name) != 0; }
   bool remove(const char *name) {
     if (failRemove && --failRemove == 0) return false;
     return files.erase(name) != 0;
@@ -38,6 +41,7 @@ public:
   }
   size_t fileSize() { return files[name].size(); }
   int read(char *buffer, size_t count) {
+    now += storageDelay;
     const auto &text = files.at(name);
     count = min(count, text.size() - position);
     memcpy(buffer, text.data() + position, count);
@@ -70,11 +74,21 @@ public:
 };
 
 struct FakeUsb {
-  void sendSysEx(int, uint8_t *) {}
+  struct Sent { uint32_t time; std::vector<uint8_t> bytes; };
+  std::vector<Sent> sent;
+  std::deque<std::vector<uint8_t>> received;
+  void (*handler)(const uint8_t *, uint16_t, bool) = nullptr;
+  void sendSysEx(int length, uint8_t *bytes) { sent.push_back({now, {bytes, bytes + length}}); }
   void send_now() {}
-  void read() {}
-  void setHandleSysEx(void (*)(const uint8_t *, uint16_t, bool)) {}
+  void read() {
+    auto packet = received.front();
+    received.pop_front();
+    if (handler && !packet.empty()) handler(packet.data(), packet.size(), true);
+  }
+  void setHandleSysEx(void (*callback)(const uint8_t *, uint16_t, bool)) { handler = callback; }
 } usbMIDI;
+
+uint32_t usb_midi_available() { return usbMIDI.received.size(); }
 
 bool hasLoaded = true, playingMidiFile = false, stoppingMidiFile = false, activePresetValid = true;
 bool liveStorageFault = false, livePresetDetached = false;
@@ -118,9 +132,13 @@ protected:
     failRemove = 0;
     failSync = false;
     now = 0;
+    storageDelay = 0;
+    usbMIDI.sent.clear();
+    usbMIDI.received.clear();
     liveExpectedBytes = 0;
     liveRequestLength = 0;
     liveResponding = false;
+    liveWorking = false;
     liveSetActive = liveStorageFault = livePresetDetached = false;
     livePresetHasSlot = true;
     presetCount = 2;
@@ -547,6 +565,124 @@ TEST_F(LiveEditor, FullSetPreservesMultichunkUtf8JsonExactly) {
   EXPECT_EQ(files["1.json"], original);
   ASSERT_TRUE(request(11)) << liveResponse;
   EXPECT_EQ(files["1.json"], text);
+}
+
+TEST_F(LiveEditor, SlowSetBeginReportsOrderedProgressBeforeFinalResponse) {
+  uint32_t revision = 0;
+  ASSERT_TRUE(liveTreeRevision(revision));
+  const std::string text = "{\"count\":1,\"revision\":" + std::to_string(revision) + "}";
+  liveRequestLength = encodeLivePacket(liveRequest, 7, 10, 0, true,
+    reinterpret_cast<const uint8_t *>(text.data()), text.size());
+  storageDelay = 30;
+  serviceLiveEditor();
+  ASSERT_TRUE(liveSetActive);
+  ASSERT_GT(now, 8000u);
+  ASSERT_GT(usbMIDI.sent.size(), 1u);
+  EXPECT_TRUE(liveResponding);
+  serviceLiveEditor();
+  ASSERT_FALSE(liveResponding);
+  for (size_t i = 0; i < usbMIDI.sent.size(); ++i) {
+    const auto &packet = usbMIDI.sent[i].bytes;
+    EXPECT_EQ(packet[4], 7);
+    EXPECT_EQ(packet[5], 10 | 0x40);
+    EXPECT_EQ((packet[6] << 7) | packet[7], i);
+    EXPECT_EQ(packet[8], i + 1 == usbMIDI.sent.size());
+    if (i) EXPECT_LT(usbMIDI.sent[i].time - usbMIDI.sent[i - 1].time, 8000u);
+  }
+  EXPECT_EQ(files["1.json"], original);
+}
+
+TEST_F(LiveEditor, SlowFullSetCommitKeepsReportingProgressPastTheCommitTimeout) {
+  uint32_t revision = 0;
+  ASSERT_TRUE(liveTreeRevision(revision));
+  ASSERT_TRUE(request(10, "{\"count\":150,\"revision\":" + std::to_string(revision) + "}"));
+  for (int i = 0; i < 150; ++i) {
+    ASSERT_TRUE(request(4, "{\"index\":" + std::to_string(i) + ",\"size\":" + std::to_string(updated.size()) + "}"));
+    ASSERT_TRUE(request(5, updated));
+    ASSERT_TRUE(request(6));
+  }
+  storageDelay = 150;
+  liveRequestLength = encodeLivePacket(liveRequest, 8, 11, 0, true, nullptr, 0);
+  serviceLiveEditor();
+  ASSERT_GT(now, 60000u);
+  ASSERT_TRUE(liveResponding);
+  ASSERT_FALSE(liveSetActive);
+  serviceLiveEditor();
+  ASSERT_FALSE(liveResponding);
+  EXPECT_EQ(presetCount, 150);
+  EXPECT_EQ(files["1.json"], updated);
+  EXPECT_EQ(files["150.json"], updated);
+  EXPECT_EQ(files["song.mid"], "MIDI");
+  EXPECT_FALSE(liveStorageFault);
+  EXPECT_FALSE(files.count(liveSetJournal));
+  for (size_t i = 0; i < usbMIDI.sent.size(); ++i) {
+    const auto &packet = usbMIDI.sent[i].bytes;
+    EXPECT_EQ(packet[4], 8);
+    EXPECT_EQ(packet[5], 11 | 0x40);
+    EXPECT_EQ((packet[6] << 7) | packet[7], i);
+    EXPECT_EQ(packet[8], i + 1 == usbMIDI.sent.size());
+    if (i) EXPECT_LT(usbMIDI.sent[i].time - usbMIDI.sent[i - 1].time, 8000u);
+  }
+}
+
+TEST_F(LiveEditor, UsbReceiveDrainsBoundedBatchesAndRetainsRequestsWhileResponding) {
+  beginLiveEditor();
+  uint8_t packet[livePacketBytes];
+  const int length = encodeLivePacket(packet, 2, 1, 0, true, nullptr, 0);
+  std::vector<uint8_t> framed = {0xf0};
+  framed.insert(framed.end(), packet, packet + length);
+  framed.push_back(0xf7);
+  for (int i = 0; i < 130; ++i) usbMIDI.received.push_back({});
+  usbMIDI.received.push_back(framed);
+  serviceLiveEditor();
+  EXPECT_EQ(usbMIDI.received.size(), 3u);
+  serviceLiveEditor();
+  EXPECT_GT(liveRequestLength, 0);
+  serviceLiveEditor();
+  EXPECT_TRUE(liveResponding);
+  usbMIDI.received.push_back(framed);
+  serviceLiveEditor();
+  EXPECT_GT(liveRequestLength, 0);
+  serviceLiveEditor();
+  EXPECT_TRUE(liveResponding);
+}
+
+TEST_F(LiveEditor, AbortRetriesFailedRecoveryAndRebuildsTheListingWithoutReset) {
+  LiveSetManifest manifest = {};
+  manifest.oldCount = 2;
+  manifest.newCount = 1;
+  strcpy(manifest.names[0], "1.json");
+  strcpy(manifest.names[1], "2.json");
+  files["syn001.tmp"] = updated;
+  ASSERT_TRUE(publishLiveSetManifest(manifest));
+  ASSERT_TRUE(liveRename("1.json", "syb001.bak"));
+  ASSERT_TRUE(liveRename("2.json", "syb002.bak"));
+  files[liveSetReady] = "";
+  liveStorageFault = true;
+  failRemove = 1;
+  EXPECT_FALSE(request(9));
+  EXPECT_TRUE(liveStorageFault);
+  ASSERT_TRUE(request(9)) << liveResponse;
+  EXPECT_FALSE(liveStorageFault);
+  EXPECT_EQ(presetCount, 1);
+  EXPECT_EQ(files["1.json"], updated);
+  EXPECT_FALSE(files.count("2.json"));
+  EXPECT_TRUE(livePresetDetached);
+  EXPECT_FALSE(livePresetHasSlot);
+  EXPECT_TRUE(request(12));
+  EXPECT_TRUE(request(3, R"({"name":"1.json"})"));
+  EXPECT_EQ(activations, 0);
+}
+
+TEST_F(LiveEditor, AbortRecoversLegacySingleFileJournalToo) {
+  files[liveJournalName] = "1.json";
+  files[liveBackupName] = original;
+  files.erase("1.json");
+  liveStorageFault = true;
+  ASSERT_TRUE(request(9));
+  EXPECT_FALSE(liveStorageFault);
+  EXPECT_EQ(files["1.json"], original);
+  EXPECT_TRUE(request(3, R"({"name":"1.json"})"));
 }
 
 } // namespace

@@ -57,6 +57,7 @@ export function LiveEditor() {
   };
   const load = async (connection: LiveMidiClient) => {
     setStatus('Loading all controller presets...');
+    await connection.request(9);
     const result = await connection.readSet();
     const list = loadEntries(result.files);
     setEntries(list);
@@ -134,9 +135,11 @@ export function LiveEditor() {
             try {
               await connection.hello();
               if (!connection.supportsPresetSets) throw new Error('Update controller firmware for full USB preset management.');
-              await connection.request(9);
               if (!loaded) await load(connection);
-              else setStatus('Reconnected. Unsaved changes retained; saves check the controller revision.');
+              else {
+                await connection.request(9);
+                setStatus('Reconnected. Unsaved changes retained; saves check the controller revision.');
+              }
               setConnected(true);
               setActiveName('');
             } catch (e) { connection.close(); throw e; }

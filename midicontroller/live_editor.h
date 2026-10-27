@@ -24,9 +24,11 @@ static bool validLiveName(const char *name) {
     strchr(name, ':') == nullptr && strcmp(name, ".json") != 0;
 }
 
+static void serviceLiveStorage();
 #include "live_set.h"
 
 static bool recoverLiveSave() {
+  serviceLiveStorage();
   if (!SD.exists(liveJournalName)) return !SD.exists(liveBackupName) && liveRemove(liveStageName);
   FsFile journal;
   if (!journal.open(liveJournalName, O_READ)) return false;
@@ -51,6 +53,9 @@ static size_t liveResponseOffset = 0;
 static uint8_t liveResponseId = 0;
 static uint8_t liveResponseCommand = 0;
 static bool liveResponding = false;
+static bool liveWorking = false;
+static uint16_t liveResponseSequence = 0;
+static uint32_t liveProgressMillis = 0;
 static char liveUpload[maxLivePresetBytes + 1];
 static int liveExpectedBytes = 0;
 static int liveReceivedBytes = 0;
@@ -67,11 +72,25 @@ static char liveSetSources[maxPresetListSize][maxPresetNameLength];
 static uint32_t liveSetRevisions[maxPresetListSize];
 static bool readLiveFile(const char *name, char *buffer, int &length);
 
+static void serviceLiveStorage() {
+  if (!liveWorking || static_cast<uint32_t>(millis() - liveProgressMillis) < 250) return;
+  // Reserve sequence numbers for the largest possible final payload.
+  if (liveResponseSequence >= 16384 - (sizeof(liveResponse) + liveChunkBytes - 1) / liveChunkBytes) return;
+  uint8_t packet[liveHeaderBytes];
+  const int length = encodeLivePacket(packet, liveResponseId, liveResponseCommand,
+    liveResponseSequence++, false, nullptr, 0);
+  usbMIDI.sendSysEx(length, packet);
+  usbMIDI.send_now();
+  liveProgressMillis = millis();
+}
+
 static bool liveTreeRevision(uint32_t &hash) {
   FsFile directory, file;
   if (!directory.open("/", O_READ)) return false;
   int found = 0;
   while (file.openNext(&directory, O_RDONLY)) {
+    serviceLiveStorage();
+    serviceLiveStorage();
     char name[256] = {};
     file.getName(name, sizeof(name));
     if (!file.isDirectory() && hasJsonExtension(name)) {
@@ -86,6 +105,7 @@ static bool liveTreeRevision(uint32_t &hash) {
   if (scanFailed || found != presetCount) return false;
   hash = 2166136261UL;
   for (int i = 0; i < presetCount; ++i) {
+    serviceLiveStorage();
     int count = 0;
     if (!readLiveFile(presetList[i], liveResponse, count)) return false;
     for (const char *p = presetList[i]; *p; ++p) hash = (hash ^ static_cast<uint8_t>(*p)) * 16777619UL;
@@ -125,6 +145,7 @@ static void liveSysExReceived(const uint8_t *data, uint16_t length, bool complet
 }
 
 static bool readLiveFile(const char *name, char *buffer, int &length) {
+  serviceLiveStorage();
   FsFile file;
   if (!file.open(name, O_READ)) return false;
   if (file.fileSize() > maxLivePresetBytes) {
@@ -147,6 +168,10 @@ static void serviceLiveRequest() {
   const int sequence = (liveRequest[6] << 7) | liveRequest[7];
   liveRequestLength = 0;
   if (length < 0) return;
+  liveResponseId = id;
+  liveResponseCommand = command | 0x40;
+  liveResponseSequence = 0;
+  liveProgressMillis = millis();
   payload[length] = 0;
   auto fail = [&](const char *text) { queueLiveResponse(id, command, text, true); };
   if (!liveRequest[8] || (command != 5 && sequence != 0)) { fail("Malformed request framing."); return; }
@@ -158,7 +183,20 @@ static void serviceLiveRequest() {
   if (command == 9) {
     liveExpectedBytes = 0;
     liveSetActive = false;
-    if (!recoverLiveSet()) { liveStorageFault = true; fail("Preset-set recovery failed; preserve synset.txn and backups."); return; }
+    const bool refresh = liveStorageFault || SD.exists(liveSetJournal) || SD.exists(liveJournalName);
+    if (!recoverLiveSave() || !recoverLiveSet()) {
+      liveStorageFault = true;
+      fail("SD recovery failed; preserve journals and backups."); return;
+    }
+    liveStorageFault = false;
+    if (refresh) {
+      loadPresetList();
+      currentPreset = clampPresetIndex(currentPreset, presetCount);
+      activePresetSignature = 0;
+      livePresetDetached = true;
+      livePresetHasSlot = false;
+      saveControllerStateNow();
+    }
     queueLiveResponse(id, command, "OK");
     return;
   }
@@ -177,6 +215,7 @@ static void serviceLiveRequest() {
     if (!liveSetActive || liveExpectedBytes || liveSetStaged != liveSetCount) { fail("Incomplete preset set."); return; }
     if (!liveTreeRevision(revision) || revision != liveSetBaseRevision) { fail("SD preset set changed; reload before saving."); return; }
     for (int i = 0; i < liveSetCount; ++i) {
+      serviceLiveStorage();
       char name[maxPresetNameLength];
       liveSetPath(name, i, false);
       uint32_t hash = 0;
@@ -313,6 +352,7 @@ static void serviceLiveRequest() {
       fail("Invalid count or changed preset set; reload before saving."); return;
     }
     for (int i = 0; i < request["count"].as<int>(); ++i) {
+      serviceLiveStorage();
       char target[maxPresetNameLength];
       snprintf(target, sizeof(target), "%d.json", i + 1);
       bool known = false;
@@ -411,7 +451,7 @@ static void serviceLiveEditor() {
     const int count = min(static_cast<size_t>(liveChunkBytes), liveResponseLength - liveResponseOffset);
     const bool last = liveResponseOffset + count == liveResponseLength;
     const int length = encodeLivePacket(packet, liveResponseId, liveResponseCommand,
-      liveResponseOffset / liveChunkBytes, last,
+      liveResponseSequence++, last,
       reinterpret_cast<const uint8_t *>(liveResponse + liveResponseOffset), count);
     usbMIDI.sendSysEx(length, packet);
     usbMIDI.send_now();
@@ -419,8 +459,15 @@ static void serviceLiveEditor() {
     if (last) liveResponding = false;
   }
   // Only process one request per loop, outside the USB receive callback.
-  if (!liveResponding && liveRequestLength) serviceLiveRequest();
-  usbMIDI.read();
+  if (!liveResponding && liveRequestLength) {
+    liveWorking = true;
+    serviceLiveRequest();
+    liveWorking = false;
+  }
+  // A SysEx spans many USB events; drain a bounded batch instead of one per loop.
+  for (int i = 0; i < 128 && !liveResponding && !liveRequestLength && usb_midi_available(); ++i) {
+    usbMIDI.read();
+  }
 }
 
 static void beginLiveEditor() {
@@ -428,6 +475,7 @@ static void beginLiveEditor() {
 }
 
 #else
+static void serviceLiveStorage() {}
 static void beginLiveEditor() {}
 static void serviceLiveEditor() {}
 #endif
