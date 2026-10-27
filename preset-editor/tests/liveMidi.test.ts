@@ -369,7 +369,7 @@ test('full USB set detects stale snapshots and aborts failed commits without los
   await mock.client.hello();
   await assert.rejects(mock.client.saveSet([], 0), /changed/);
   mock.failCommit = true;
-  await assert.rejects(mock.client.saveSet(['{}'], 123), /Reload the controller set/);
+  await assert.rejects(mock.client.saveSet(['{}'], 123), /Save failed while committing numbered preset files on SD:.*SD commit failed.*Reload the controller set/);
   assert.equal(mock.commands.at(-1), 9);
   assert.equal(mock.files[0].name, 'Lead.json');
   mock.client.close();

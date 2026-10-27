@@ -27,7 +27,8 @@ static size_t sendMidiFileEvent(Serial &serial, const Event &event, uint8_t chan
 
 template <typename Input>
 static void forwardMidiInput(Input &input) {
-  while (input.read()) {
+  // Keep continuous input traffic from starving USB editing and switch polling.
+  for (int count = 0; count < 32 && input.read(); ++count) {
     if (input.getType() == midi::SystemExclusive) {
       MIDI1.sendSysEx(input.getSysExArrayLength(), input.getSysExArray(), true);
 #if defined(USB_MIDI) || defined(USB_MIDI_SERIAL) || defined(USB_MIDI4) || defined(USB_MIDI4_SERIAL) || defined(USB_MIDI16) || defined(USB_MIDI16_SERIAL)
