@@ -163,7 +163,7 @@ static void serviceLiveRequest() {
     if (!liveExpectedBytes || liveReceivedBytes != liveExpectedBytes) { fail("Incomplete upload."); return; }
     liveUpload[liveReceivedBytes] = 0;
     StaticJsonDocument<presetDocumentCapacity> document;
-    const auto error = deserializeJson(document, liveUpload, liveReceivedBytes);
+    const auto error = deserializeJson(document, static_cast<const char *>(liveUpload), liveReceivedBytes);
     if (error || strlen(liveUpload) != static_cast<size_t>(liveReceivedBytes) ||
         !validPerformancePreset(document.as<JsonVariantConst>())) { fail("Invalid or oversized preset JSON/actions."); return; }
     int currentLength = 0;

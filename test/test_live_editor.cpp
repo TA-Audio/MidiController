@@ -132,7 +132,7 @@ TEST_F(LiveEditor, SavesExistingFileWithoutActivatingAndInvalidatesPrefetch) {
   prefetchedPresetIndex = 0;
   prefetchRequested = true;
   ASSERT_TRUE(upload(updated));
-  ASSERT_TRUE(request(6));
+  ASSERT_TRUE(request(6)) << liveResponse;
   EXPECT_EQ(files["1.json"], updated);
   EXPECT_EQ(activations, 0);
   EXPECT_EQ(prefetchedPresetIndex, -1);
