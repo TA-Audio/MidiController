@@ -1,6 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decodePacket, encodePacket, LIVE_CHUNK_BYTES, LiveMidiClient, presetRevision, presetSetRevision } from '../src/liveMidi.ts';
+import { matchMidiPort, MIDI_SETTINGS_KEY, portIdentity, readMidiSettings } from '../src/midiSettings.ts';
+
+test('MIDI settings round-trip only port identities and reject malformed stored data', () => {
+  const port = { id: 'input-1', name: 'Teensy MIDI', manufacturer: 'PJRC', state: 'connected' };
+  const settings = { input: portIdentity(port), output: null };
+  assert.deepEqual(settings.input, { id: 'input-1', name: 'Teensy MIDI', manufacturer: 'PJRC' });
+  assert.deepEqual(readMidiSettings({ getItem: (key) => { assert.equal(key, MIDI_SETTINGS_KEY); return JSON.stringify(settings); } }), settings);
+  assert.deepEqual(readMidiSettings({ getItem: () => null }), { input: null, output: null });
+  for (const text of ['bad JSON', 'null', '{}', '{"input":{"id":1},"output":null}']) {
+    assert.throws(() => readMidiSettings({ getItem: () => text }));
+  }
+  assert.throws(() => readMidiSettings({ getItem: () => { throw new Error('Storage disabled'); } }), /Storage disabled/);
+});
+
+test('MIDI ports restore by ID then unique identity, without selecting disconnected or ambiguous devices', () => {
+  const port = { id: 'old', name: 'Teensy MIDI', manufacturer: 'PJRC', state: 'connected' };
+  const replacement = { ...port, id: 'new' };
+  assert.equal(matchMidiPort([port, replacement], port), port);
+  assert.equal(matchMidiPort([replacement], port), replacement);
+  assert.equal(matchMidiPort([{ ...replacement, state: 'disconnected' }], port), undefined);
+  assert.equal(matchMidiPort([replacement, { ...replacement, id: 'another' }], port), undefined);
+  assert.equal(matchMidiPort([{ ...replacement, manufacturer: 'Unknown' }], port), undefined);
+  assert.equal(matchMidiPort([replacement], null), replacement);
+  assert.equal(matchMidiPort([{ ...replacement, name: 'Piano' }], null), undefined);
+  assert.equal(matchMidiPort([port, replacement], null), undefined);
+});
 
 class MockPort extends EventTarget {
   state = 'connected';
@@ -144,6 +170,104 @@ test('timeouts reject and clear the pending request', async (t) => {
   const rejected = assert.rejects(client.hello(), /timed out/);
   t.mock.timers.tick(8000);
   await rejected;
+  client.close();
+});
+
+test('ordered storage progress extends the idle timeout without completing the request', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const input = new MockPort(), output = new MockPort();
+  let id = 0;
+  output.send = (bytes) => { id = decodePacket(new Uint8Array(bytes))!.id; };
+  const client = new LiveMidiClient(input as unknown as MIDIInput, output as unknown as MIDIOutput);
+  let finished = false;
+  const request = client.request(10).then((text) => { finished = true; return text; });
+  const emit = (sequence: number, last: boolean, text = '') => {
+    const event = new Event('midimessage');
+    Object.defineProperty(event, 'data', { value: new Uint8Array(encodePacket(id, 10 | 64, sequence,
+      new TextEncoder().encode(text), last)) });
+    input.dispatchEvent(event);
+  };
+  for (let sequence = 0; sequence < 5; ++sequence) {
+    t.mock.timers.tick(7000);
+    emit(sequence, false);
+    await Promise.resolve();
+    assert.equal(finished, false);
+  }
+  emit(5, true, 'OK');
+  assert.equal(await request, 'OK');
+  client.close();
+});
+
+test('a stalled progress stream times out and leaves the connection usable', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const input = new MockPort(), output = new MockPort();
+  let id = 0;
+  output.send = (bytes) => { id = decodePacket(new Uint8Array(bytes))!.id; };
+  const client = new LiveMidiClient(input as unknown as MIDIInput, output as unknown as MIDIOutput);
+  const rejected = assert.rejects(client.request(10), /command 10 timed out/);
+  const emit = (command: number, last: boolean) => {
+    const event = new Event('midimessage');
+    Object.defineProperty(event, 'data', { value: new Uint8Array(encodePacket(id, command | 64, 0,
+      new Uint8Array(), last)) });
+    input.dispatchEvent(event);
+  };
+  t.mock.timers.tick(7000);
+  emit(10, false);
+  t.mock.timers.tick(8000);
+  await rejected;
+  const recovery = client.request(9);
+  emit(9, true);
+  await recovery;
+  client.close();
+});
+
+test('progress frames preserve multi-packet content and controller error responses', async () => {
+  const input = new MockPort(), output = new MockPort();
+  let shouldFail = false;
+  output.send = (bytes) => {
+    const packet = decodePacket(new Uint8Array(bytes))!;
+    queueMicrotask(() => {
+      const emit = (sequence: number, last: boolean, text: string, error = false) => {
+        const event = new Event('midimessage');
+        Object.defineProperty(event, 'data', { value: new Uint8Array(encodePacket(packet.id,
+          error ? 127 : packet.command | 64, sequence, new TextEncoder().encode(text), last)) });
+        input.dispatchEvent(event);
+      };
+      emit(0, false, '');
+      if (shouldFail) emit(1, true, 'SD recovery failed; preserve journals', true);
+      else {
+        emit(1, false, '{"Name":"');
+        emit(2, false, '');
+        emit(3, true, 'Lead"}');
+      }
+    });
+  };
+  const client = new LiveMidiClient(input as unknown as MIDIInput, output as unknown as MIDIOutput);
+  assert.equal((await client.read('1.json')).text, '{"Name":"Lead"}');
+  shouldFail = true;
+  await assert.rejects(client.request(9), /SD recovery failed/);
+  client.close();
+});
+
+test('a timed-out set begin is aborted even when its acknowledgement was lost', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const input = new MockPort(), output = new MockPort();
+  const commands: number[] = [];
+  output.send = (bytes) => {
+    const packet = decodePacket(new Uint8Array(bytes))!;
+    commands.push(packet.command);
+    if (packet.command !== 9) return;
+    const event = new Event('midimessage');
+    Object.defineProperty(event, 'data', { value: new Uint8Array(encodePacket(packet.id, 9 | 64, 0,
+      new TextEncoder().encode('OK'))) });
+    input.dispatchEvent(event);
+  };
+  const client = new LiveMidiClient(input as unknown as MIDIInput, output as unknown as MIDIOutput);
+  client.supportsPresetSets = true;
+  const rejected = assert.rejects(client.saveSet(['{}'], 123), /command 10 timed out.*Reload/);
+  t.mock.timers.tick(8000);
+  await rejected;
+  assert.deepEqual(commands, [10, 9]);
   client.close();
 });
 

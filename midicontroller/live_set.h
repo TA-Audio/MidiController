@@ -21,6 +21,7 @@ static bool liveSetFileHash(const char *name, uint32_t &hash) {
   hash = 2166136261UL;
   size_t remaining = size;
   while (remaining) {
+    serviceLiveStorage();
     char buffer[128];
     const size_t expected = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
     const int count = file.read(buffer, expected);
@@ -61,6 +62,7 @@ static bool readLiveSetManifest(LiveSetManifest &manifest) {
 
 static bool cleanLiveSetStages() {
   for (int i = 0; i < maxPresetListSize; ++i) {
+    serviceLiveStorage();
     char name[maxPresetNameLength];
     liveSetPath(name, i, false);
     if (!liveRemove(name)) return false;
@@ -72,6 +74,7 @@ static bool cleanLiveSetStages() {
 static bool recoverLiveSet() {
   if (!SD.exists(liveSetJournal)) {
     for (int i = 0; i < maxPresetListSize; ++i) {
+      serviceLiveStorage();
       char name[maxPresetNameLength];
       liveSetPath(name, i, true);
       if (SD.exists(name)) return false;
@@ -82,6 +85,7 @@ static bool recoverLiveSet() {
   if (!readLiveSetManifest(manifest)) return false;
   if (SD.exists(liveSetReady)) {
     for (uint32_t i = 0; i < manifest.newCount; ++i) {
+      serviceLiveStorage();
       char stage[maxPresetNameLength], target[maxPresetNameLength];
       liveSetPath(stage, i, false);
       snprintf(target, sizeof(target), "%lu.json", static_cast<unsigned long>(i + 1));
@@ -94,12 +98,14 @@ static bool recoverLiveSet() {
       if (!liveSetFileHash(target, hash) || hash != manifest.revisions[i]) return false;
     }
     for (uint32_t i = 0; i < manifest.oldCount; ++i) {
+      serviceLiveStorage();
       char backup[maxPresetNameLength];
       liveSetPath(backup, i, true);
       if (!liveRemove(backup)) return false;
     }
   } else {
     for (uint32_t i = 0; i < manifest.oldCount; ++i) {
+      serviceLiveStorage();
       char backup[maxPresetNameLength];
       liveSetPath(backup, i, true);
       if (SD.exists(backup) &&
@@ -112,6 +118,7 @@ static bool recoverLiveSet() {
 
 static inline bool publishLiveSetManifest(LiveSetManifest &manifest) {
   for (uint32_t i = 0; i < manifest.newCount; ++i) {
+    serviceLiveStorage();
     char name[maxPresetNameLength];
     liveSetPath(name, i, false);
     if (!liveSetFileHash(name, manifest.revisions[i])) return false;
@@ -128,6 +135,7 @@ static inline bool publishLiveSetManifest(LiveSetManifest &manifest) {
 static inline bool installLiveSet(LiveSetManifest &manifest) {
   if (!publishLiveSetManifest(manifest)) return false;
   for (uint32_t i = 0; i < manifest.oldCount; ++i) {
+    serviceLiveStorage();
     char backup[maxPresetNameLength];
     liveSetPath(backup, i, true);
     if (!liveRename(manifest.names[i], backup)) return false;

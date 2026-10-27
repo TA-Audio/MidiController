@@ -91,6 +91,8 @@ static void clearDisplay() {
   midiFileActivityDisplayAllowed = false;
 }
 
+#include "midi_output.h"
+
 static inline void sendProgramChange(int pcValue, int channel, bool usbEvent, bool deviceEvent) {
   const int safePc = clampMidi(pcValue);
 #if defined(USB_MIDI) || defined(USB_MIDI_SERIAL) || defined(USB_MIDI4) || defined(USB_MIDI4_SERIAL) || defined(USB_MIDI16) || defined(USB_MIDI16_SERIAL)
@@ -108,7 +110,7 @@ static inline void sendProgramChange(int pcValue, int channel, bool usbEvent, bo
   if (usbEvent) {
     usbMidiDevice.sendProgramChange(safePc, channel);
   } else {
-    MIDI1.sendProgramChange(safePc, channel);
+    sendDinMidi(midi::ProgramChange, safePc, 0, channel);
   }
 }
 
@@ -130,7 +132,7 @@ static inline void sendControlChange(int ccNumber, int ccValue, int channel, boo
   if (usbEvent) {
     usbMidiDevice.sendControlChange(safeCcNumber, safeCcValue, channel);
   } else {
-    MIDI1.sendControlChange(safeCcNumber, safeCcValue, channel);
+    sendDinMidi(midi::ControlChange, safeCcNumber, safeCcValue, channel);
   }
 }
 
@@ -191,19 +193,9 @@ static void servicePresetDisplayRefresh() {
 }
 
 static void serviceMidiPassthrough() {
-  while (MIDI2.read()) {
-    MIDI1.send(MIDI2.getType(),
-               MIDI2.getData1(),
-               MIDI2.getData2(),
-               MIDI2.getChannel());
-  }
-
-  while (MIDI3.read()) {
-    MIDI1.send(MIDI3.getType(),
-               MIDI3.getData1(),
-               MIDI3.getData2(),
-               MIDI3.getChannel());
-  }
+  forwardMidiInput(MIDI1);
+  forwardMidiInput(MIDI2);
+  forwardMidiInput(MIDI3);
 }
 
 FLASHMEM bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<presetDocumentCapacity> &targetDoc) {
@@ -478,7 +470,7 @@ static void serviceMidiFileActivityIndicator() {
 
 static void stopMidiClock() {
   if (midiClockEnabled) {
-    MIDI1.sendStop();
+    sendDinMidi(midi::Stop);
   }
   midiClockEnabled = false;
   midiClockForMidiFile = false;
@@ -498,9 +490,9 @@ static void startMidiClock(uint16_t tempo, bool forMidiFile, bool sendStart = tr
   midiClockTempo = tempo;
   midiClockIntervalUs = interval;
   if (sendStart) {
-    MIDI1.sendStart();
+    sendDinMidi(midi::Start);
   }
-  MIDI1.sendClock();
+  sendDinMidi(midi::Clock);
   midiClockNextPulseUs = micros() + midiClockIntervalUs;
 }
 
@@ -638,7 +630,7 @@ FLASHMEM void stopMidiFile(bool changingPreset) {
     stopMidiClock();
   }
   if (activeMidiFileClockMode != MidiFileClockMode::Disabled && !clockSendsStop) {
-    MIDI1.sendStop();
+    sendDinMidi(midi::Stop);
   }
   activeMidiFileClockMode = MidiFileClockMode::Disabled;
   sendCcArray(activePreset["FileInfo"]["StopCC"]);
@@ -664,7 +656,7 @@ static void serviceMidiClock() {
     return;
   }
 
-  MIDI1.sendClock();
+  sendDinMidi(midi::Clock);
   midiClockNextPulseUs += midiClockIntervalUs;
   if (static_cast<int32_t>(now - midiClockNextPulseUs) >= static_cast<int32_t>(midiClockIntervalUs)) {
     midiClockNextPulseUs = now + midiClockIntervalUs;
@@ -716,7 +708,7 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
       midiFilePlayer.getTempo());
     activeMidiFileClockMode = actions.clockMode;
     if (actions.sendStart) {
-      MIDI1.sendStart();
+      sendDinMidi(midi::Start);
     }
     if (actions.startClock) {
       startMidiClock(midiFilePlayer.getTempo(), true, false);
@@ -997,13 +989,8 @@ FLASHMEM void loadPresetList() {
 }
 
 void midiFileCallback(midi_event *pev) {
-
-  if ((pev->data[0] >= 0x80) && (pev->data[0] <= 0xe0)) {
-    size_t bytesSent = Serial1.write(pev->data[0] | (midiFileOutputChannel - 1));
-    bytesSent += Serial1.write(&pev->data[1], pev->size - 1);
-    if (playingMidiFile && bytesSent > 0) {
-      midiFileActivity.recordSent(millis());
-    }
+  if (sendMidiFileEvent(Serial1, *pev, midiFileOutputChannel) && playingMidiFile) {
+    midiFileActivity.recordSent(millis());
   }
 }
 
@@ -1034,6 +1021,7 @@ FLASHMEM void setup() {
   pinMode(prevPresetPin, INPUT_PULLUP);
 
   MIDI1.begin(MIDI_CHANNEL_OMNI);
+  MIDI1.turnThruOff();
 
   MIDI2.begin(MIDI_CHANNEL_OMNI);
   MIDI2.turnThruOff();
@@ -1084,7 +1072,6 @@ void loop() {
 
   usbHost.Task();
 
-  MIDI1.read();
   serviceMidiPassthrough();
 
   if (!liveStorageFault) pollButtons();

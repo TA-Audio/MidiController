@@ -61,6 +61,7 @@ interface Pending {
   resolve: (text: string) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  timeoutMs: number;
 }
 
 export class LiveMidiClient {
@@ -79,6 +80,8 @@ export class LiveMidiClient {
       if (!packet || !pending || packet.id !== pending.id) return;
       if (packet.command !== (pending.command | 0x40) && packet.command !== 0x7f) return;
       if (packet.sequence !== pending.sequence++) throw new Error('Missing or out-of-order USB response.');
+      clearTimeout(pending.timer);
+      pending.timer = this.requestTimer(pending.command, pending.timeoutMs);
       pending.bytes.push(...packet.bytes);
       if (pending.bytes.length > 20000) throw new Error('USB response exceeds limit.');
       if (packet.last) {
@@ -115,6 +118,12 @@ export class LiveMidiClient {
     this.pending = null;
   }
 
+  private requestTimer(command: number, timeoutMs: number) {
+    return setTimeout(() => this.fail(new Error(
+      `USB command ${command} timed out waiting for controller progress. Retry Reload controller set; if necessary, reconnect USB MIDI.`
+    )), timeoutMs);
+  }
+
   close() {
     this.closed = true;
     this.fail(new Error('USB MIDI connection closed.'));
@@ -129,8 +138,9 @@ export class LiveMidiClient {
     const id = this.nextId = this.nextId % 127 + 1;
     const packet = encodePacket(id, command, sequence, data);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => this.fail(new Error('USB request timed out. Check connection and Serial + MIDI firmware, then reconnect.')), command === 11 ? 60000 : 8000);
-      this.pending = { id, command, sequence: 0, bytes: [], resolve, reject, timer };
+      const timeoutMs = command === 11 ? 60000 : 8000;
+      const timer = this.requestTimer(command, timeoutMs);
+      this.pending = { id, command, sequence: 0, bytes: [], resolve, reject, timer, timeoutMs };
       try { this.output.send(packet); } catch (e) { this.fail(e instanceof Error ? e : new Error(String(e))); }
     });
   }
@@ -187,8 +197,8 @@ export class LiveMidiClient {
     if (files.some((bytes) => !bytes.length || bytes.length > MAX_LIVE_PRESET_BYTES)) {
       throw new Error('Each live preset must be 1–8192 UTF-8 bytes.');
     }
-    await this.json(10, { count: files.length, revision });
     try {
+      await this.json(10, { count: files.length, revision });
       for (let index = 0; index < files.length; ++index) {
         const bytes = files[index];
         await this.json(4, { index, size: bytes.length, source: sources[index] ?? '' });
