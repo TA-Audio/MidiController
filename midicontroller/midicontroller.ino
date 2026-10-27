@@ -29,6 +29,10 @@ FsFile sdFile;
 MD_MIDIFile midiFilePlayer;
 int midiFileOutputChannel;
 bool playingMidiFile = false;
+MidiFileActivity midiFileActivity;
+bool midiFileActivityDisplayed = false;
+bool midiFileActivityDisplayAllowed = false;
+bool midiFileActivityWasPlaying = false;
 bool stoppingMidiFile = false;
 bool midiFileLoaded = false;
 MidiFileClockMode activeMidiFileClockMode = MidiFileClockMode::Disabled;
@@ -66,6 +70,12 @@ void changePreset();
 void executeSwitchLogic(int switchNo);
 void setPresetDisplayInfo();
 void showError(const char *errorMessageLine1, const char *errorMessageLine2);
+
+static void clearDisplay() {
+  lcd.clear();
+  midiFileActivityDisplayed = false;
+  midiFileActivityDisplayAllowed = false;
+}
 
 static inline void sendProgramChange(int pcValue, int channel, bool usbEvent) {
   const int safePc = clampMidi(pcValue);
@@ -260,13 +270,14 @@ FLASHMEM static void showSwitchActionMessage(const char *text, const char *suffi
     return;
   }
 
-  lcd.clear();
+  clearDisplay();
+  midiFileActivityDisplayAllowed = true;
   displayCenteredLine(1, lineBuffer);
   setUiMessageTimeout();
 }
 
 FLASHMEM void showError(const char *errorMessageLine1, const char *errorMessageLine2) {
-  lcd.clear();
+  clearDisplay();
   lcd.setCursor(0, 0);
   lcd.print(errorMessageLine1);
   lcd.setCursor(0, 1);
@@ -274,7 +285,7 @@ FLASHMEM void showError(const char *errorMessageLine1, const char *errorMessageL
 }
 
 void setPresetDisplayInfo() {
-  lcd.clear();
+  clearDisplay();
   lcd.setCursor(0, 0);
   const char *sw1 = "";
   const char *sw2 = "";
@@ -285,6 +296,7 @@ void setPresetDisplayInfo() {
     displayCenteredLine(1, "Next/Prev to skip");
     return;
   } else {
+    midiFileActivityDisplayAllowed = true;
     presetNameScrollOffset = 0;
     presetNameScrollDirection = 1;
     presetNameScrollStartMillis = currentMillis;
@@ -367,18 +379,23 @@ void setPresetDisplayInfo() {
 static void displayPresetName() {
   const char *name = activePreset["Name"] | "";
   const int nameLength = static_cast<int>(strlen(name));
-  const int maxOffset = nameLength > lcdColumnCount ? nameLength - lcdColumnCount : 0;
+  const int columns = presetNameColumns(playingMidiFile);
+  const int maxOffset = nameLength > columns ? nameLength - columns : 0;
   if (presetNameScrollOffset > maxOffset) {
     presetNameScrollOffset = maxOffset;
   }
 
   lcd.setCursor(0, 0);
   int column = 0;
-  for (; column < lcdColumnCount && presetNameScrollOffset + column < nameLength; ++column) {
+  for (; column < columns && presetNameScrollOffset + column < nameLength; ++column) {
     lcd.print(name[presetNameScrollOffset + column]);
   }
-  for (; column < lcdColumnCount; ++column) {
+  for (; column < columns; ++column) {
     lcd.print(' ');
+  }
+  midiFileActivityDisplayed = midiFileActivity.visible(playingMidiFile, millis());
+  if (playingMidiFile) {
+    lcd.print(midiFileActivityDisplayed ? '*' : ' ');
   }
 }
 
@@ -389,7 +406,7 @@ static void servicePresetNameScroll() {
   }
 
   const char *name = activePreset["Name"] | "";
-  const int maxOffset = static_cast<int>(strlen(name)) - lcdColumnCount;
+  const int maxOffset = static_cast<int>(strlen(name)) - presetNameColumns(playingMidiFile);
   if (maxOffset <= 0) {
     return;
   }
@@ -404,6 +421,24 @@ static void servicePresetNameScroll() {
   }
   presetNameScrollStartMillis = currentMillis;
   displayPresetName();
+}
+
+static void serviceMidiFileActivityIndicator() {
+  const bool playbackChanged = midiFileActivityWasPlaying != playingMidiFile;
+  midiFileActivityWasPlaying = playingMidiFile;
+  if (!playingMidiFile) {
+    midiFileActivity.reset();
+  }
+  if (!midiFileActivityDisplayAllowed) return;
+
+  if (playbackChanged && !resetPresetDisplay) {
+    displayPresetName();
+  }
+  const bool visible = midiFileActivity.visible(playingMidiFile, millis());
+  if (visible == midiFileActivityDisplayed) return;
+  lcd.setCursor(lcdColumnCount - 1, 0);
+  lcd.print(visible ? '*' : ' ');
+  midiFileActivityDisplayed = visible;
 }
 
 static void stopMidiClock() {
@@ -484,6 +519,7 @@ static void switchHandler(uint8_t btnId, uint8_t btnState) {
 }
 
 FLASHMEM void stopMidiFile(bool changingPreset) {
+  midiFileActivity.reset();
   const bool stopClock = midiClockForMidiFile || changingPreset;
   const bool clockSendsStop = stopClock && midiClockEnabled;
   if (stopClock) {
@@ -559,6 +595,7 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
     midiFilePlayer.restart();
     midiFileOutputChannel = fileInfo["Channel"].as<int>();
     stoppingMidiFile = false;
+    midiFileActivity.reset();
     playingMidiFile = true;
     const bool sendFileClock = fileInfo["SendMidiClock"].is<bool>() &&
       fileInfo["SendMidiClock"].as<bool>();
@@ -581,7 +618,8 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
   snprintf(text, sizeof(text), "%s", midiFile != nullptr ? midiFile : "");
 
   if (strlen(text) > 1) {
-    lcd.clear();
+    clearDisplay();
+    midiFileActivityDisplayAllowed = true;
     displayCenteredLine(1, text);
     lcd.setCursor(0, 2);
     lcd.print(playingMidiFile ? " Playing" : " Stopping");
@@ -689,6 +727,7 @@ FLASHMEM void changePreset() {
   midiFilePlayer.close();
   midiFileLoaded = false;
   playingMidiFile = false;
+  midiFileActivity.reset();
   stoppingMidiFile = false;
 
   memset(switchToggled, 0, sizeof(switchToggled));
@@ -804,6 +843,9 @@ void midiFileCallback(midi_event *pev) {
   if ((pev->data[0] >= 0x80) && (pev->data[0] <= 0xe0)) {
     Serial1.write(pev->data[0] | (midiFileOutputChannel - 1));
     Serial1.write(&pev->data[1], pev->size - 1);
+    if (playingMidiFile) {
+      midiFileActivity.recordSent(millis());
+    }
   }
 }
 
@@ -910,6 +952,7 @@ void loop() {
   serviceMidiClock();
   servicePresetDisplayRefresh();
   servicePresetNameScroll();
+  serviceMidiFileActivityIndicator();
   servicePresetPrefetch();
   commitPendingEepromWrites();
 }

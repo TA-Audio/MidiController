@@ -41,6 +41,7 @@ Each preset can define `OnExit` CC messages that are sent when navigating away t
 - Set `FileInfo.SendMidiClock` to `true` to send MIDI Start and Stop over DIN MIDI OUT for file playback, plus 24-PPQN Clock pulses when no preset Clock is active. An active preset Clock takes precedence: its tempo and pulse schedule remain unchanged when the file starts, stops, or reaches EOF. File note playback still uses the file's own tempo or `FileInfo.BPM` override independently of the preset Clock.
 - File Start/Stop messages are still sent when `FileInfo.SendMidiClock` is `true`, even with preset Clock active. A receiving device may stop its sequencer on MIDI Stop despite continuing to receive preset Clock pulses.
 - Optional `StopCC` array to send CC messages when playback stops (e.g. silence a looper).
+- While a file is playing, a `*` in the LCD's top-right corner lights for 100 ms after each transmitted file MIDI event. It stays lit during dense activity and clears during gaps or when playback stops. MIDI Clock, transport, preset messages, and passthrough traffic do not trigger it.
 
 ### MIDI I/O
 | Port | Direction | Purpose |
@@ -53,7 +54,7 @@ Each preset can define `OnExit` CC messages that are sent when navigating away t
 ### Display
 - **20×4 I2C LCD** (address `0x27`).
 - Row 0: Preset name.
-- Preset names longer than 20 characters scroll left and right across row 0.
+- Preset names longer than 20 characters scroll left and right across row 0. During MIDI file playback, the name uses 19 columns so the activity indicator stays visible, including during temporary playback/switch messages.
 - Row 2: Toggle indicators (`*` per switch when toggled on).
 - Row 3: Switch labels from the preset JSON.
 - Temporary overlay messages (e.g. "DIST On!") display for 1.5 seconds then return to the preset view.

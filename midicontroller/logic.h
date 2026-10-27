@@ -23,6 +23,7 @@ static constexpr unsigned long initialLoadDelayMs = 1000;
 static constexpr unsigned long switchDisplayPeriodMs = 1500;
 static constexpr unsigned long presetNameScrollPeriodMs = 500;
 static constexpr unsigned long eepromCommitDelayMs = 200;
+static constexpr uint32_t midiFileActivityHoldMs = 100;
 
 // ── Display ──────────────────────────────────────────────────────────────────
 
@@ -164,6 +165,27 @@ inline int clampMidi(int value) {
 /// the reference time.  Handles unsigned wrap-around correctly.
 inline bool hasElapsed(unsigned long currentMs, unsigned long start, unsigned long durationMs) {
   return (currentMs - start) >= durationMs;
+}
+
+struct MidiFileActivity {
+  bool hasSent = false;
+  uint32_t lastSentMillis = 0;
+
+  void reset() { hasSent = false; }
+
+  void recordSent(uint32_t now) {
+    hasSent = true;
+    lastSentMillis = now;
+  }
+
+  bool visible(bool playing, uint32_t now) const {
+    return playing && hasSent &&
+      static_cast<uint32_t>(now - lastSentMillis) < midiFileActivityHoldMs;
+  }
+};
+
+inline int presetNameColumns(bool playingMidiFile) {
+  return lcdColumnCount - (playingMidiFile ? 1 : 0);
 }
 
 /// Extract the leading decimal number from a filename (e.g. "12.json" -> 12).

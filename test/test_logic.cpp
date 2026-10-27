@@ -1,6 +1,57 @@
 #include <gtest/gtest.h>
 #include "logic.h"
 
+TEST(MidiFileActivity, PlaybackWithoutSentEventsRemainsDark) {
+  MidiFileActivity activity;
+  EXPECT_FALSE(activity.visible(false, 0));
+  EXPECT_FALSE(activity.visible(true, 0));
+  EXPECT_FALSE(activity.visible(true, 1000));
+}
+
+TEST(MidiFileActivity, SentEventsLightForExactlyOneHundredMilliseconds) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  EXPECT_TRUE(activity.visible(true, 1000));
+  EXPECT_TRUE(activity.visible(true, 1099));
+  EXPECT_FALSE(activity.visible(true, 1100));
+  EXPECT_FALSE(activity.visible(true, 2000));
+}
+
+TEST(MidiFileActivity, DenseEventsExtendThePulseUntilTheLastEventExpires) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  activity.recordSent(1050);
+  EXPECT_TRUE(activity.visible(true, 1100));
+  EXPECT_TRUE(activity.visible(true, 1149));
+  EXPECT_FALSE(activity.visible(true, 1150));
+}
+
+TEST(MidiFileActivity, StopAndRestartCannotDisplayStaleActivity) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  EXPECT_FALSE(activity.visible(false, 1001));
+  activity.reset();
+  EXPECT_FALSE(activity.visible(true, 1002));
+  activity.recordSent(1003);
+  EXPECT_TRUE(activity.visible(true, 1003));
+}
+
+TEST(MidiFileActivity, HandlesMillisWraparoundAndAnEventAtZero) {
+  MidiFileActivity activity;
+  activity.recordSent(UINT32_MAX - 49);
+  EXPECT_TRUE(activity.visible(true, 49));
+  EXPECT_FALSE(activity.visible(true, 50));
+  activity.recordSent(0);
+  EXPECT_TRUE(activity.visible(true, 0));
+  EXPECT_FALSE(activity.visible(true, 100));
+}
+
+TEST(MidiFileActivity, ReservesOnlyTheLastColumnDuringPlayback) {
+  EXPECT_EQ(presetNameColumns(false), 20);
+  EXPECT_EQ(presetNameColumns(true), 19);
+  EXPECT_EQ(20 - presetNameColumns(true), 1);  // A 20-character name must scroll.
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ClampMidi
 // ═══════════════════════════════════════════════════════════════════════════════
