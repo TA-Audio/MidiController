@@ -24,6 +24,9 @@ jobs:
 
   compile:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        usb: [serial, serialmidi]
 
     steps:
       - name: Checkout
@@ -73,5 +76,6 @@ jobs:
         run: |
           arduino-cli compile \
             --fqbn teensy:avr:teensy41 \
+            --board-options usb=${{ matrix.usb }} \
             --warnings all \
             midicontroller/midicontroller.ino

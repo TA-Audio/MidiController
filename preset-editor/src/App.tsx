@@ -4,6 +4,7 @@ import { MAX_PRESETS, newPreset, parsePreset, serializePreset, validatePreset } 
 import type { FolderSource } from './folder';
 import { downloadZip, pickFolder, readDirectory, readFileList, saveNumberedFiles, supportsDirectoryAccess } from './folder';
 import { PresetEditor } from './PresetEditor';
+import { LiveEditor } from './LiveEditor';
 import type { Entry } from './entries';
 import { contentOf, entryFromFile, isDirty, loadEntries, moveEntry, newId, numberEntries, obsoleteFileNames } from './entries';
 
@@ -208,6 +209,8 @@ export default function App() {
           </button>
         </div>
       )}
+
+      <LiveEditor />
 
       {!folder ? (
         <main className="welcome">

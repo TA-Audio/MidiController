@@ -32,7 +32,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$fqbn = 'teensy:avr:teensy41'
+$fqbn = 'teensy:avr:teensy41:usb=serialmidi'
 $sketchPath = Join-Path $PSScriptRoot 'midicontroller' 'midicontroller.ino'
 $boardManagerUrl = 'https://www.pjrc.com/teensy/package_teensy_index.json'
 

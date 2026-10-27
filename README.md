@@ -23,9 +23,20 @@ Each preset defines up to three foot switch actions (`Switch1`, `Switch2`, `Swit
 | **Control Change** | Send one or more CC messages on any MIDI channel, via DIN or USB. |
 | **Toggle Mode** | A switch can be configured as a toggle — alternating between on (CC 127) and off (CC 0) with each press. The LCD shows `On!` / `Off!` indicators and a `*` marker on the display row. |
 
-The current preset's toggle states are saved to EEPROM immediately when a toggle changes. On power-up, the controller restores those states and sends their matching CC 127/0 messages **after** the normal OnLoad messages. It does not replay switch PC messages or resume MIDI file playback. Changing presets resets all toggles; returning to a preset does not restore its previous toggles.
+The current preset's toggle states are saved to EEPROM immediately when a toggle changes. On power-up, the controller restores those states **after** the normal OnLoad messages. Legacy toggles send their matching CC 127/0 messages without replaying switch PC messages. Explicit On/Off toggles replay the configured PC and CC list for their saved state, including custom values and USB destinations. MIDI file playback is never resumed. Changing presets resets all toggles; returning to a preset does not restore its previous toggles.
 
 Saved toggle states are used only if the preset filename and configuration still match. Older firmware's saved preset position remains compatible, with toggles initially Off. Immediate saving removes the deliberate save delay, but power loss during an EEPROM write can still prevent restoration.
+
+### Performance Actions
+
+These features are opt-in: existing presets still send their primary action immediately on press.
+
+- **Explicit On/Off**: set `Toggle: true` and supply `On` and `Off` action objects. Each state has its own label, PC list and CC list; CC values are used exactly as configured. These replace the switch's legacy PC/CC lists.
+- **Sequences**: supply a `Sequence` array of 1-16 action objects. Each primary activation sends one step, then advances and wraps. The LCD shows the last step's label after activation. Changing presets resets the sequence to step 1; position is not persisted.
+- **Tap tempo**: set `TapTempo: true`. Two taps establish tempo; subsequent taps average the last three intervals (30-300 BPM). Taps closer than 200 ms are ignored; a gap longer than two seconds starts a new measurement. Tempo is temporary and resets when changing presets. Tapping updates the active DIN MIDI Clock without restarting transport, or starts preset Clock if none is running. When file Clock owns the tempo, tapping also changes file playback tempo; when preset Clock owns it, file note tempo remains independent.
+- **Gestures**: optional `Gestures.Press`, `Release`, `LongPress`, and `DoubleTap` action objects. Press/Release run on their respective edges, useful for momentary effects. With gestures enabled, the primary action runs on release, unless replaced by a 600 ms long press or a double tap. Enabling DoubleTap delays a single primary activation by 300 ms after release. Release still runs after a long/double action and when navigating away while held. Leave primary lists empty for a momentary-only switch.
+
+Toggle, Sequence and TapTempo are mutually exclusive primary modes; gestures can accompany any mode. Switch 1 remains Play/Stop when a MIDI file is assigned, ignoring its performance actions. Action labels fall back to the switch label when empty.
 
 ### On-Load Events
 Each preset can define `OnLoad` PC and CC messages that are sent automatically when the preset is selected — useful for switching amp channels, enabling default effects, etc.
@@ -50,6 +61,9 @@ Each preset can define `OnExit` CC messages that are sent when navigating away t
 | **Serial2 (DIN MIDI IN 1)** | Input | Passes through to Serial1 (MIDI merge). |
 | **Serial3 (DIN MIDI IN 2)** | Input | Passes through to Serial1 (MIDI merge). |
 | **USB Host MIDI** | Output | PC and CC messages when `"USB": true` in the preset. |
+| **USB Computer MIDI** | Bidirectional | PC/CC to a computer/DAW when `"USBDevice": true`; SysEx for live editing. Requires a USB MIDI firmware build. |
+
+Use only one USB destination per message. Neither flag means DIN output. USB Computer does not merge incoming DAW notes or implement an incoming remote-control mapping; use your DAW's MIDI mapping for outgoing PC/CC.
 
 ### Display
 - **20×4 I2C LCD** (address `0x27`).
@@ -162,13 +176,37 @@ When `FileInfo` is present, Switch 1 becomes a play/stop control for the specifi
 | `Switch1/2/3.Toggle` | bool | If `true`, the switch alternates between on/off states. |
 | `Switch1/2/3.CC[]` | array | CC messages sent on press. In toggle mode, value is overridden to 127 (on) or 0 (off). |
 | `Switch1/2/3.PC[]` | array | PC messages sent on press. `PC` value is 1-indexed (internally decremented by 1). |
+| `Switch1/2/3.On`, `.Off` | object | Explicit toggle state actions: optional `Name`, `PC[]`, `CC[]`. Both required with `Toggle: true`. |
+| `Switch1/2/3.Sequence[]` | array | 1-16 actions, one per primary activation, wrapping to the first. |
+| `Switch1/2/3.TapTempo` | bool | Make the primary action a tap-tempo control. |
+| `Switch1/2/3.Gestures` | object | Optional `Press`, `Release`, `LongPress`, `DoubleTap` actions with `Name`, `PC[]`, `CC[]`. |
 | `FileInfo.FileName` | string | Name of the `.mid` file on the SD card. |
 | `FileInfo.BPM` | int | Optional playback tempo override. If omitted or `null`, the tempo embedded in the MIDI file is used. |
 | `FileInfo.Channel` | int | MIDI output channel for file playback. |
 | `FileInfo.SendMidiClock` | bool | Optional. If `true`, sends MIDI Start/Stop for file playback and 24-PPQN Clock at the file playback tempo only when no preset Clock is active. Does not interrupt an active preset Clock. Defaults to `false`. |
 | `FileInfo.StopCC[]` | array | CC messages sent when playback stops. |
 | `*.USB` | bool | If `true`, the message is sent over USB Host MIDI instead of DIN. |
+| `*.USBDevice` | bool | If `true`, sends to the computer over device USB MIDI. Cannot be combined with `USB: true`. |
 | `*.Channel` | int | MIDI channel (1–16). |
+
+For example, this switch sends a computer CC while held, switches to a different DIN program on a long press, and has no primary messages:
+
+```json
+{
+  "Name": "Momentary and hold",
+  "Switch1": {
+    "Name": "HOLD",
+    "Toggle": false,
+    "Gestures": {
+      "Press": { "CC": [{ "CC": 64, "Value": 127, "Channel": 1, "USBDevice": true }] },
+      "Release": { "CC": [{ "CC": 64, "Value": 0, "Channel": 1, "USBDevice": true }] },
+      "LongPress": { "Name": "LEAD", "PC": [{ "PC": 9, "Channel": 2 }] }
+    }
+  }
+}
+```
+
+Preset documents now have an 8192-byte ArduinoJson memory pool. Live transfers additionally limit serialized JSON to 8192 UTF-8 bytes; heavily nested presets can exhaust the JSON pool before that byte limit and are rejected rather than truncated.
 
 ## Building
 
@@ -201,9 +239,11 @@ See [setup-local.ps1](setup-local.ps1) for details.
 ### Manual Build
 
 ```bash
-arduino-cli compile --fqbn teensy:avr:teensy41 midicontroller/midicontroller.ino
-arduino-cli upload  --fqbn teensy:avr:teensy41 -p <PORT> midicontroller/midicontroller.ino
+arduino-cli compile --fqbn teensy:avr:teensy41:usb=serialmidi midicontroller/midicontroller.ino
+arduino-cli upload  --fqbn teensy:avr:teensy41:usb=serialmidi -p <PORT> midicontroller/midicontroller.ino
 ```
+
+The setup script defaults to **Serial + MIDI** (`usb=serialmidi`). In the Arduino IDE, choose **Tools > USB Type > Serial + MIDI**. Serial-only builds retain DIN/USB Host features but cannot use live editing or USB Computer messages; attempting to send a USB Computer message displays an error.
 
 ## Preset Editor (Web)
 
@@ -228,11 +268,21 @@ npm install
 npm run dev
 ```
 
-Run the editor's ordering and folder/ZIP save tests with `npm test` (Node.js 22.6 or newer), and check the production build with `npm run build`.
+Run the editor's ordering, folder/ZIP, performance schema and live MIDI transport tests with `npm test` (Node.js 22.6 or newer), and check the production build with `npm run build`.
+
+### Live USB Editing
+
+Connect the Teensy's **device USB port** to your computer with Serial + MIDI firmware, then expand **Live USB editor and DAW connection**. In Chrome/Edge over HTTPS or localhost, enable MIDI access (including SysEx), choose the matching Synapse input/output ports, and Connect. Stop MIDI file playback before loading or saving.
+
+Select an existing preset, edit it, and **Save to controller**. This writes that same filename on the SD card without adding, deleting, renumbering or reordering files; use folder editing for those operations. Save does not activate the preset or send OnLoad messages. **Activate saved preset** applies it and sends OnExit/OnLoad normally. **Test switch 1/2/3** explicitly sends the selected preset's primary action; use physical switches for gestures. Firmware rejects tests if physical navigation changed the active preset. Test Switch 1 can also stop a file it started.
+
+Unsaved edits remain visible after disconnection. Reconnect and reload if the SD contents changed; stale revisions are rejected. After an interrupted/timed-out save, reload to establish what is actually on disk before retrying. Keep an SD backup. Live saves stage and sync data, then journal a rename with `synapse.tmp`, `synapse.bak`, and `synapse.txn` (reserved filenames). Boot recovers an interrupted rename in both serial and MIDI builds, retaining the old file if the replacement was not installed. Unrecoverable journals halt boot with an error so the backup is not silently discarded. FAT/SD hardware still cannot guarantee atomic writes across power loss.
+
+The version-1 protocol uses noncommercial SysEx ID `7D`, magic `53 59`, and nibble-encoded payloads (96 raw bytes/packet, preserving UTF-8). The body is `7D 53 59 01 ID CMD SEQ_H SEQ_L LAST PAYLOAD`; Web MIDI adds `F0`/`F7`. Commands are hello (1), list (2), read (3), begin upload (4), data (5), commit (6), activate (7), test (8), abort (9); responses set command bit `40`, errors use `7F`. Requests are acknowledged individually, with sequenced responses and uploads, bounded buffers, upload expiry, and raw-file FNV-1a revision checks before and at commit. Only one editor should be connected at a time; this protocol is not an authenticated control channel.
 
 ## CI
 
-A GitHub Actions workflow (`.github/workflows/compile.yml`) compiles the firmware on every push and pull request. It automatically patches the MD_MIDIFile library for Teensy compatibility.
+A GitHub Actions workflow (`.github/workflows/compile.yml`) compiles serial-only and Serial + MIDI firmware variants on pushes to main/master and pull requests, and runs native logic/performance/protocol tests. It automatically patches the MD_MIDIFile library for Teensy compatibility.
 
 The `.github/workflows/pages.yml` workflow builds the preset editor and deploys it to GitHub Pages whenever `preset-editor/` changes on `main`. In the repository settings, set **Pages → Source** to **GitHub Actions**.
 

@@ -2,6 +2,7 @@ export interface PcMessage {
   PC: number;
   Channel: number;
   USB: boolean;
+  USBDevice?: boolean;
 }
 
 export interface CcMessage {
@@ -9,13 +10,28 @@ export interface CcMessage {
   Value: number;
   Channel: number;
   USB: boolean;
+  USBDevice?: boolean;
 }
+
+export interface SwitchAction {
+  Name: string;
+  PC: PcMessage[];
+  CC: CcMessage[];
+}
+
+export const GESTURE_KEYS = ['Press', 'Release', 'LongPress', 'DoubleTap'] as const;
+export type GestureKey = (typeof GESTURE_KEYS)[number];
 
 export interface SwitchConfig {
   Name: string;
   Toggle: boolean;
   PC: PcMessage[];
   CC: CcMessage[];
+  On?: SwitchAction;
+  Off?: SwitchAction;
+  Sequence?: SwitchAction[];
+  TapTempo?: boolean;
+  Gestures?: Partial<Record<GestureKey, SwitchAction>>;
 }
 
 export interface FileInfo {
@@ -61,6 +77,7 @@ function parsePcList(v: unknown): PcMessage[] {
     PC: num(m.PC, 1),
     Channel: num(m.Channel, DEFAULT_CHANNEL),
     USB: m.USB === true,
+    ...(m.USBDevice === true ? { USBDevice: true } : {}),
   }));
 }
 
@@ -71,16 +88,34 @@ function parseCcList(v: unknown): CcMessage[] {
     Value: num(m.Value, 127),
     Channel: num(m.Channel, DEFAULT_CHANNEL),
     USB: m.USB === true,
+    ...(m.USBDevice === true ? { USBDevice: true } : {}),
   }));
+}
+
+function parseAction(v: unknown): SwitchAction {
+  if (!isObj(v)) throw new Error('Switch actions must be JSON objects.');
+  return { Name: typeof v.Name === 'string' ? v.Name : '', PC: parsePcList(v.PC), CC: parseCcList(v.CC) };
 }
 
 function parseSwitch(v: unknown): SwitchConfig {
   const s = isObj(v) ? v : {};
+  const gestures: Partial<Record<GestureKey, SwitchAction>> = {};
+  if (s.Gestures !== undefined) {
+    if (!isObj(s.Gestures)) throw new Error('Gestures must be an object.');
+    for (const key of GESTURE_KEYS) if (s.Gestures[key] !== undefined) gestures[key] = parseAction(s.Gestures[key]);
+  }
+  if (s.Sequence !== undefined && !Array.isArray(s.Sequence)) throw new Error('Sequence must be an array.');
+  if (s.TapTempo !== undefined && typeof s.TapTempo !== 'boolean') throw new Error('TapTempo must be a boolean.');
   return {
     Name: typeof s.Name === 'string' ? s.Name : '',
     Toggle: s.Toggle === true,
     PC: parsePcList(s.PC),
     CC: parseCcList(s.CC),
+    ...(s.On !== undefined ? { On: parseAction(s.On) } : {}),
+    ...(s.Off !== undefined ? { Off: parseAction(s.Off) } : {}),
+    ...(Array.isArray(s.Sequence) ? { Sequence: s.Sequence.map(parseAction) } : {}),
+    ...(s.TapTempo === true ? { TapTempo: true } : {}),
+    ...(s.Gestures !== undefined ? { Gestures: gestures } : {}),
   };
 }
 
@@ -117,14 +152,24 @@ export function parsePreset(text: string): Preset {
 }
 
 const pcOut = (list: PcMessage[]) =>
-  list.length === 0 ? null : list.map((m) => ({ PC: m.PC, Channel: m.Channel, ...(m.USB ? { USB: true } : {}) }));
+  list.length === 0 ? null : list.map((m) => ({ PC: m.PC, Channel: m.Channel, ...(m.USB ? { USB: true } : {}), ...(m.USBDevice ? { USBDevice: true } : {}) }));
 
 const ccOut = (list: CcMessage[]) =>
   list.length === 0
     ? null
-    : list.map((m) => ({ CC: m.CC, Value: m.Value, Channel: m.Channel, ...(m.USB ? { USB: true } : {}) }));
+    : list.map((m) => ({ CC: m.CC, Value: m.Value, Channel: m.Channel, ...(m.USB ? { USB: true } : {}), ...(m.USBDevice ? { USBDevice: true } : {}) }));
 
-const switchOut = (s: SwitchConfig) => ({ Name: s.Name, Toggle: s.Toggle, CC: ccOut(s.CC), PC: pcOut(s.PC) });
+const actionOut = (a: SwitchAction) => ({ Name: a.Name, PC: pcOut(a.PC), CC: ccOut(a.CC) });
+const switchOut = (s: SwitchConfig) => ({
+  Name: s.Name, Toggle: s.Toggle, CC: ccOut(s.CC), PC: pcOut(s.PC),
+  ...(s.On ? { On: actionOut(s.On) } : {}),
+  ...(s.Off ? { Off: actionOut(s.Off) } : {}),
+  ...(s.Sequence ? { Sequence: s.Sequence.map(actionOut) } : {}),
+  ...(s.TapTempo ? { TapTempo: true } : {}),
+  ...(s.Gestures ? { Gestures: Object.fromEntries(GESTURE_KEYS.filter((key) => s.Gestures![key]).map((key) => [key, actionOut(s.Gestures![key]!)])) } : {}),
+});
+
+export const emptyAction = (): SwitchAction => ({ Name: '', PC: [], CC: [] });
 
 export function serializePreset(p: Preset): string {
   const out: Json = { Name: p.Name };
@@ -181,6 +226,7 @@ function checkPc(list: PcMessage[], where: string, issues: Issue[]) {
   list.forEach((m, i) => {
     if (!inRange(m.PC, 1, 128)) issues.push({ level: 'error', message: `${where} PC #${i + 1}: program must be 1–128.` });
     if (!inRange(m.Channel, 1, 16)) issues.push({ level: 'error', message: `${where} PC #${i + 1}: channel must be 1–16.` });
+    if (m.USB && m.USBDevice) issues.push({ level: 'error', message: `${where}: choose USB Host or USB Computer, not both.` });
   });
 }
 
@@ -189,11 +235,13 @@ function checkCc(list: CcMessage[], where: string, issues: Issue[]) {
     if (!inRange(m.CC, 0, 127)) issues.push({ level: 'error', message: `${where} CC #${i + 1}: controller must be 0–127.` });
     if (!inRange(m.Value, 0, 127)) issues.push({ level: 'error', message: `${where} CC #${i + 1}: value must be 0–127.` });
     if (!inRange(m.Channel, 1, 16)) issues.push({ level: 'error', message: `${where} CC #${i + 1}: channel must be 1–16.` });
+    if (m.USB && m.USBDevice) issues.push({ level: 'error', message: `${where}: choose USB Host or USB Computer, not both.` });
   });
 }
 
 export function switchLabel(p: Preset, key: SwitchKey): string {
-  return key === 'Switch1' && p.FileInfo ? 'Play' : p[key].Name;
+  if (key === 'Switch1' && p.FileInfo) return 'Play';
+  return (p[key].Toggle && p[key].Off?.Name) || p[key].Name;
 }
 
 export function validatePreset(p: Preset): Issue[] {
@@ -208,6 +256,22 @@ export function validatePreset(p: Preset): Issue[] {
   for (const k of SWITCH_KEYS) {
     checkPc(p[k].PC, k, issues);
     checkCc(p[k].CC, k, issues);
+    const sw = p[k];
+    if ((sw.On || sw.Off) && (!sw.Toggle || !sw.On || !sw.Off)) {
+      issues.push({ level: 'error', message: `${k}: explicit states require Toggle and both On and Off actions.` });
+    }
+    if (Number(sw.Toggle) + Number(!!sw.TapTempo) + Number(!!sw.Sequence?.length) > 1) {
+      issues.push({ level: 'error', message: `${k}: choose just one of toggle, sequence or tap tempo.` });
+    }
+    if (sw.Sequence && (sw.Sequence.length < 1 || sw.Sequence.length > 16)) {
+      issues.push({ level: 'error', message: `${k}: sequence must contain 1–16 steps.` });
+    }
+    const actions = [sw.On, sw.Off, ...(sw.Sequence ?? []), ...GESTURE_KEYS.map((key) => sw.Gestures?.[key])];
+    actions.forEach((action, index) => {
+      if (!action) return;
+      checkPc(action.PC, `${k} action ${index + 1}`, issues);
+      checkCc(action.CC, `${k} action ${index + 1}`, issues);
+    });
   }
 
   const labelLen = SWITCH_KEYS.reduce((n, k) => n + switchLabel(p, k).length, 0);
@@ -222,7 +286,7 @@ export function validatePreset(p: Preset): Issue[] {
     if (!inRange(f.Channel, 1, 16)) issues.push({ level: 'error', message: 'MIDI file channel must be 1–16.' });
     checkCc(f.StopCC, 'Stop', issues);
     const sw1 = p.Switch1;
-    if (sw1.PC.length || sw1.CC.length)
+    if (sw1.PC.length || sw1.CC.length || sw1.On || sw1.Off || sw1.Sequence || sw1.TapTempo || sw1.Gestures)
       issues.push({ level: 'warning', message: 'Switch1 messages are ignored while a MIDI file is assigned (Switch1 is Play/Stop).' });
   }
   return issues;

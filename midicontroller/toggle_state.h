@@ -29,7 +29,35 @@ inline bool isToggleCcSwitch(JsonVariantConst preset, int index) {
   if (index == 0 && !preset["FileInfo"].isNull()) return false;
   const char *keys[] = {"Switch1", "Switch2", "Switch3"};
   JsonVariantConst sw = preset[keys[index]];
-  return sw["Toggle"].as<bool>() && sw["CC"].is<JsonArrayConst>();
+  return sw["Toggle"].as<bool>() && (sw["CC"].is<JsonArrayConst>() ||
+    sw["On"].is<JsonObjectConst>() || sw["Off"].is<JsonObjectConst>());
+}
+
+template <typename SendCc, typename SendPc>
+void restoreToggleStates(JsonVariantConst preset, uint8_t savedMask, bool *states,
+                         SendCc sendCc, SendPc sendPc) {
+  const char *keys[] = {"Switch1", "Switch2", "Switch3"};
+  for (int i = 0; i < switchCount; ++i) {
+    states[i] = isToggleCcSwitch(preset, i) && (savedMask & (1 << i)) != 0;
+    if (!isToggleCcSwitch(preset, i)) continue;
+    JsonVariantConst sw = preset[keys[i]];
+    if (sw["On"].is<JsonObjectConst>() || sw["Off"].is<JsonObjectConst>()) {
+      JsonVariantConst action = sw[states[i] ? "On" : "Off"];
+      for (JsonVariantConst pc : action["PC"].as<JsonArrayConst>()) {
+        sendPc(pcJsonToMidi(pc["PC"].as<int>()), pc["Channel"].as<int>(),
+               pc["USB"].as<bool>(), pc["USBDevice"].as<bool>());
+      }
+      for (JsonVariantConst cc : action["CC"].as<JsonArrayConst>()) {
+        sendCc(cc["CC"].as<int>(), cc["Value"].as<int>(), cc["Channel"].as<int>(),
+               cc["USB"].as<bool>(), cc["USBDevice"].as<bool>());
+      }
+    } else {
+      for (JsonVariantConst cc : sw["CC"].as<JsonArrayConst>()) {
+        sendCc(cc["CC"].as<int>(), states[i] ? 127 : 0,
+               cc["Channel"].as<int>(), cc["USB"].as<bool>(), cc["USBDevice"].as<bool>());
+      }
+    }
+  }
 }
 
 template <typename SendCc>

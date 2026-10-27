@@ -10,6 +10,8 @@
 #include <string.h>
 #include "logic.h"
 #include "toggle_state.h"
+#include "performance.h"
+#include "performance_validation.h"
 
 bool hasLoaded = false;
 bool switchToggled[switchCount] = {};
@@ -23,7 +25,11 @@ bool activePresetValid = false;
 int currentPreset = 0;
 int presetCount = 0;
 DMAMEM char presetList[maxPresetListSize][maxPresetNameLength];
-DMAMEM StaticJsonDocument<4096> presetDoc;
+DMAMEM StaticJsonDocument<presetDocumentCapacity> presetDoc;
+SwitchGesture switchGestures[switchCount];
+int sequenceSteps[switchCount] = {};
+bool sequenceStarted[switchCount] = {};
+TapTempo tapTempo;
 FsFile rootDir;
 FsFile sdFile;
 MD_MIDIFile midiFilePlayer;
@@ -53,7 +59,7 @@ int presetNavigationDirection = 1;
 int prefetchedPresetIndex = -1;
 int prefetchTargetIndex = -1;
 bool prefetchRequested = false;
-DMAMEM StaticJsonDocument<4096> prefetchedPresetDoc;
+DMAMEM StaticJsonDocument<presetDocumentCapacity> prefetchedPresetDoc;
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI1);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, MIDI2);
@@ -62,7 +68,7 @@ MIDI_CREATE_INSTANCE(HardwareSerial, Serial3, MIDI3);
 USBHost usbHost;
 MIDIDevice usbMidiDevice(usbHost);
 
-bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<4096> &targetDoc);
+bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<presetDocumentCapacity> &targetDoc);
 bool applyPresetByIndex(int presetIndex);
 void queueDirectionalPresetPrefetch();
 void servicePresetPrefetch();
@@ -70,6 +76,11 @@ void changePreset();
 void executeSwitchLogic(int switchNo);
 void setPresetDisplayInfo();
 void showError(const char *errorMessageLine1, const char *errorMessageLine2);
+static void setUiMessageTimeout();
+static void serviceSwitchGesture(int index, bool pressed);
+static void executeTapTempo();
+static void executePerformanceAction(JsonObject action);
+static const char *switchDisplayName(int index);
 
 static void clearDisplay() {
   lcd.clear();
@@ -77,8 +88,20 @@ static void clearDisplay() {
   midiFileActivityDisplayAllowed = false;
 }
 
-static inline void sendProgramChange(int pcValue, int channel, bool usbEvent) {
+static inline void sendProgramChange(int pcValue, int channel, bool usbEvent, bool deviceEvent) {
   const int safePc = clampMidi(pcValue);
+#if defined(USB_MIDI) || defined(USB_MIDI_SERIAL) || defined(USB_MIDI4) || defined(USB_MIDI4_SERIAL) || defined(USB_MIDI16) || defined(USB_MIDI16_SERIAL)
+  if (deviceEvent) {
+    usbMIDI.sendProgramChange(safePc, channel);
+    return;
+  }
+#else
+  if (deviceEvent) {
+    showError("USB MIDI disabled", "Build serialmidi");
+    setUiMessageTimeout();
+    return;
+  }
+#endif
   if (usbEvent) {
     usbMidiDevice.sendProgramChange(safePc, channel);
   } else {
@@ -86,9 +109,21 @@ static inline void sendProgramChange(int pcValue, int channel, bool usbEvent) {
   }
 }
 
-static inline void sendControlChange(int ccNumber, int ccValue, int channel, bool usbEvent) {
+static inline void sendControlChange(int ccNumber, int ccValue, int channel, bool usbEvent, bool deviceEvent) {
   const int safeCcNumber = clampMidi(ccNumber);
   const int safeCcValue = clampMidi(ccValue);
+#if defined(USB_MIDI) || defined(USB_MIDI_SERIAL) || defined(USB_MIDI4) || defined(USB_MIDI4_SERIAL) || defined(USB_MIDI16) || defined(USB_MIDI16_SERIAL)
+  if (deviceEvent) {
+    usbMIDI.sendControlChange(safeCcNumber, safeCcValue, channel);
+    return;
+  }
+#else
+  if (deviceEvent) {
+    showError("USB MIDI disabled", "Build serialmidi");
+    setUiMessageTimeout();
+    return;
+  }
+#endif
   if (usbEvent) {
     usbMidiDevice.sendControlChange(safeCcNumber, safeCcValue, channel);
   } else {
@@ -99,14 +134,14 @@ static inline void sendControlChange(int ccNumber, int ccValue, int channel, boo
 static void sendPcArray(JsonArray pcArray) {
   if (pcArray.isNull()) return;
   for (JsonVariant pcEvent : pcArray) {
-    sendProgramChange(pcJsonToMidi(pcEvent["PC"].as<int>()), pcEvent["Channel"], pcEvent["USB"]);
+    sendProgramChange(pcJsonToMidi(pcEvent["PC"].as<int>()), pcEvent["Channel"], pcEvent["USB"], pcEvent["USBDevice"]);
   }
 }
 
 static void sendCcArray(JsonArray ccArray) {
   if (ccArray.isNull()) return;
   for (JsonVariant ccEvent : ccArray) {
-    sendControlChange(ccEvent["CC"], ccEvent["Value"], ccEvent["Channel"], ccEvent["USB"]);
+    sendControlChange(ccEvent["CC"], ccEvent["Value"], ccEvent["Channel"], ccEvent["USB"], ccEvent["USBDevice"]);
   }
 }
 
@@ -168,7 +203,7 @@ static void serviceMidiPassthrough() {
   }
 }
 
-FLASHMEM bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<4096> &targetDoc) {
+FLASHMEM bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<presetDocumentCapacity> &targetDoc) {
   if (presetIndex < 0 || presetIndex >= presetCount) {
     return false;
   }
@@ -183,7 +218,7 @@ FLASHMEM bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<4096
   DeserializationError error = deserializeJson(targetDoc, sdFile);
   sdFile.close();
 
-  if (error || !targetDoc.is<JsonObject>()) {
+  if (error || !targetDoc.is<JsonObject>() || !validPerformancePreset(targetDoc.as<JsonVariantConst>())) {
     targetDoc.clear();
     return false;
   }
@@ -312,10 +347,10 @@ void setPresetDisplayInfo() {
       }
 
     } else {
-      sw1 = activePreset["Switch1"]["Name"] | "";
+      sw1 = switchDisplayName(0);
     }
-    sw2 = activePreset["Switch2"]["Name"] | "";
-    sw3 = activePreset["Switch3"]["Name"] | "";
+    sw2 = switchDisplayName(1);
+    sw3 = switchDisplayName(2);
   }
 
   int sw1Length = (int)strlen(sw1);
@@ -497,7 +532,84 @@ static bool startPresetMidiClock() {
   return midiClockEnabled;
 }
 
+static void executeTapTempo() {
+  const int bpm = tapTempo.tap(static_cast<uint32_t>(millis()));
+  if (bpm == 0) {
+    showSwitchActionMessage("Tap tempo", "");
+    return;
+  }
+  if (midiClockForMidiFile) {
+    midiFilePlayer.setTempo(bpm);
+    midiClockTempo = bpm;
+    midiClockIntervalUs = midiClockIntervalForTempo(bpm);
+    midiClockNextPulseUs = micros() + midiClockIntervalUs;
+  } else if (midiClockEnabled) {
+    midiClockTempo = bpm;
+    midiClockIntervalUs = midiClockIntervalForTempo(bpm);
+    midiClockNextPulseUs = micros() + midiClockIntervalUs;
+  } else {
+    startMidiClock(bpm, false);
+  }
+  char text[24];
+  snprintf(text, sizeof(text), "Tempo %d BPM", bpm);
+  showSwitchActionMessage(text, "");
+}
+
+static void executePerformanceAction(JsonObject action) {
+  if (action.isNull()) return;
+  sendPcArray(action["PC"]);
+  sendCcArray(action["CC"]);
+}
+
+static const char *actionDisplayName(JsonVariantConst action, const char *fallback) {
+  const char *label = action["Name"] | "";
+  return label[0] ? label : fallback;
+}
+
+static void serviceSwitchGesture(int index, bool pressed) {
+  const char *keys[] = {"Switch1", "Switch2", "Switch3"};
+  JsonObject sw = activePreset[keys[index]];
+  JsonObject gestures = sw["Gestures"];
+  const uint8_t events = switchGestures[index].update(
+    pressed, static_cast<uint32_t>(millis()),
+    gestures["LongPress"].is<JsonObject>(), gestures["DoubleTap"].is<JsonObject>());
+  if (events & GesturePress) executePerformanceAction(gestures["Press"]);
+  if (events & GestureHold) {
+    executePerformanceAction(gestures["LongPress"]);
+    showSwitchActionMessage(actionDisplayName(gestures["LongPress"], sw["Name"] | ""), "");
+  }
+  if (events & GestureDouble) {
+    executePerformanceAction(gestures["DoubleTap"]);
+    showSwitchActionMessage(actionDisplayName(gestures["DoubleTap"], sw["Name"] | ""), "");
+  }
+  if (events & GestureTap) executeSwitchLogic(index + 1);
+  if (events & GestureRelease) executePerformanceAction(gestures["Release"]);
+}
+
+static const char *switchDisplayName(int index) {
+  const char *keys[] = {"Switch1", "Switch2", "Switch3"};
+  JsonObject sw = activePreset[keys[index]];
+  if (sw["Toggle"].as<bool>()) {
+    return actionDisplayName(sw[switchToggled[index] ? "On" : "Off"], sw["Name"] | "");
+  }
+  JsonArray sequence = sw["Sequence"];
+  if (!sequence.isNull() && sequence.size() > 0 && sequenceStarted[index]) {
+    const int previous = (sequenceSteps[index] + sequence.size() - 1) % sequence.size();
+    return actionDisplayName(sequence[previous], sw["Name"] | "");
+  }
+  return sw["Name"] | "";
+}
+
 static void switchHandler(uint8_t btnId, uint8_t btnState) {
+  if (hasLoaded && activePresetValid && btnId >= 1 && btnId <= 3 &&
+      !(btnId == 1 && !activePreset["FileInfo"].isNull())) {
+    const char *keys[] = {"Switch1", "Switch2", "Switch3"};
+    JsonObject sw = activePreset[keys[btnId - 1]];
+    if (sw["Gestures"].is<JsonObject>()) {
+      serviceSwitchGesture(btnId - 1, btnState == BTN_STATE_PRESSED);
+      return;
+    }
+  }
   const SwitchAction action = classifySwitchEvent(btnId, btnState, hasLoaded);
 
   if (action == SwitchAction::ExecuteSwitch) {
@@ -660,6 +772,36 @@ void executeSwitchLogic(int switchNo) {
   bool toggle = switchLogic["Toggle"].as<bool>();
   const bool wasToggled = switchToggled[switchNo - 1];
 
+  if (switchLogic["TapTempo"].as<bool>()) {
+    executeTapTempo();
+    return;
+  }
+  JsonArray sequence = switchLogic["Sequence"];
+  if (!sequence.isNull() && sequence.size() > 0) {
+    if (sequence.size() > maxSequenceSteps) {
+      showError("Sequence too long", "Maximum 16 steps");
+      setUiMessageTimeout();
+      return;
+    }
+    const int step = sequenceSteps[switchNo - 1];
+    JsonObject action = sequence[step];
+    executePerformanceAction(action);
+    sequenceSteps[switchNo - 1] = nextSequenceStep(step, sequence.size());
+    sequenceStarted[switchNo - 1] = true;
+    const char *label = actionDisplayName(action, switchName);
+    showSwitchActionMessage(label, "");
+    return;
+  }
+  if (toggle && (switchLogic["On"].is<JsonObject>() || switchLogic["Off"].is<JsonObject>())) {
+    JsonObject state = switchLogic[wasToggled ? "Off" : "On"];
+    executePerformanceAction(state);
+    switchToggled[switchNo - 1] = !wasToggled;
+    saveControllerStateNow();
+    const char *label = actionDisplayName(state, switchName);
+    showSwitchActionMessage(label, wasToggled ? " Off!" : " On!");
+    return;
+  }
+
   sendPcArray(switchLogic["PC"]);
 
   JsonArray ccArray = switchLogic["CC"];
@@ -683,7 +825,7 @@ void executeSwitchLogic(int switchNo) {
       int ccChannel = cc["Channel"];
       bool usbEvent = cc["USB"];
 
-      sendControlChange(ccNumber, ccValue, ccChannel, usbEvent);
+      sendControlChange(ccNumber, ccValue, ccChannel, usbEvent, cc["USBDevice"]);
     }
 
     if (useToggleValue) {
@@ -715,6 +857,10 @@ FLASHMEM void changePreset() {
   }
 
   if (activePresetValid) {
+    const char *keys[] = {"Switch1", "Switch2", "Switch3"};
+    for (int i = 0; i < switchCount; ++i) {
+      if (switchGestures[i].down) executePerformanceAction(activePreset[keys[i]]["Gestures"]["Release"]);
+    }
     sendCcArray(activePreset["OnExit"]["CC"]);
   }
 
@@ -731,6 +877,10 @@ FLASHMEM void changePreset() {
   stoppingMidiFile = false;
 
   memset(switchToggled, 0, sizeof(switchToggled));
+  memset(sequenceSteps, 0, sizeof(sequenceSteps));
+  memset(sequenceStarted, 0, sizeof(sequenceStarted));
+  for (auto &gesture : switchGestures) gesture = SwitchGesture{};
+  tapTempo = TapTempo{};
 
   // if saved currentPreset value is greater than the number of presets, reset to 0
   currentPreset = clampPresetIndex(currentPreset, presetCount);
@@ -762,7 +912,13 @@ FLASHMEM void changePreset() {
   sendCcArray(activePreset["OnLoad"]["CC"]);
 
   if (restoreBootState) {
-    restoreToggleStates(activePreset, bootMask, switchToggled, sendControlChange);
+    restoreToggleStates(activePreset, bootMask, switchToggled,
+      [](int cc, int value, int channel, bool host, bool device) {
+        sendControlChange(cc, value, channel, host, device);
+      },
+      [](int pc, int channel, bool host, bool device) {
+        sendProgramChange(pc, channel, host, device);
+      });
   }
 
   setPresetDisplayInfo();
@@ -855,6 +1011,8 @@ static Button switch3Button(3, switchHandler);
 static Button nextPresetButton(4, switchHandler);
 static Button prevPresetButton(5, switchHandler);
 
+#include "live_editor.h"
+
 FLASHMEM void setup() {
 
   lcd.init();  // initialize the lcd
@@ -889,7 +1047,12 @@ FLASHMEM void setup() {
   midiFilePlayer.begin(&(SdFat &)SD);
   midiFilePlayer.setMidiHandler(midiFileCallback);
 
+  if (!recoverLiveSave()) {
+    showError("SD recovery failed", "Check synapse.txn/bak");
+    while (true) {}
+  }
   loadPresetList();
+  beginLiveEditor();
 
   EEPROM.get(presetEepromAddress, currentPreset);
   EEPROM.get(controllerStateEepromAddress, bootControllerState);
@@ -919,6 +1082,15 @@ void loop() {
   serviceMidiPassthrough();
 
   pollButtons();
+  if (hasLoaded && activePresetValid) {
+    const char *keys[] = {"Switch1", "Switch2", "Switch3"};
+    for (int i = 0; i < switchCount; ++i) {
+      if (i == 0 && !activePreset["FileInfo"].isNull()) continue;
+      if (activePreset[keys[i]]["Gestures"].is<JsonObject>()) {
+        serviceSwitchGesture(i, switchGestures[i].down);
+      }
+    }
+  }
   if (!hasLoaded && (currentMillis - startMillis >= initialLoadDelayMs)) {
     hasLoaded = true;
     changePreset();
@@ -950,6 +1122,7 @@ void loop() {
   }
 
   serviceMidiClock();
+  serviceLiveEditor();
   servicePresetDisplayRefresh();
   servicePresetNameScroll();
   serviceMidiFileActivityIndicator();

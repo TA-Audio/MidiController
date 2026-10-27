@@ -98,6 +98,7 @@ button.icon:hover:not(:disabled) {
 input[type='text'],
 input[type='number'],
 input[type='search'],
+select,
 textarea {
   font: inherit;
   background: var(--bg);
