@@ -197,22 +197,27 @@ export class LiveMidiClient {
     if (files.some((bytes) => !bytes.length || bytes.length > MAX_LIVE_PRESET_BYTES)) {
       throw new Error('Each live preset must be 1–8192 UTF-8 bytes.');
     }
+    let stage = 'starting preset-set upload';
     try {
       await this.json(10, { count: files.length, revision });
       for (let index = 0; index < files.length; ++index) {
         const bytes = files[index];
+        stage = `starting ${index + 1}.json (${bytes.length} bytes)`;
         await this.json(4, { index, size: bytes.length, source: sources[index] ?? '' });
         for (let offset = 0; offset < bytes.length; offset += LIVE_CHUNK_BYTES) {
+          stage = `uploading ${index + 1}.json at byte ${offset}`;
           await this.request(5, bytes.subarray(offset, offset + LIVE_CHUNK_BYTES), offset / LIVE_CHUNK_BYTES);
         }
+        stage = `staging ${index + 1}.json on SD`;
         await this.request(6);
       }
+      stage = 'committing numbered preset files on SD';
       await this.request(11);
       return presetSetRevision(texts.map((text, index) => ({ name: `${index + 1}.json`, text })));
     } catch (error) {
       try { await this.request(9); }
-      catch (abortError) { throw new Error(`${String(error)}; recovery request failed: ${String(abortError)}. Reconnect and reload the controller set.`); }
-      throw new Error(`${String(error)}. Reload the controller set before retrying; an interrupted commit may have completed.`);
+      catch (abortError) { throw new Error(`Save failed while ${stage}: ${String(error)}; recovery request failed: ${String(abortError)}. Reconnect and reload the controller set.`); }
+      throw new Error(`Save failed while ${stage}: ${String(error)}. Reload the controller set before retrying; an interrupted commit may have completed.`);
     }
   }
 

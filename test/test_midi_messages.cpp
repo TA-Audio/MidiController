@@ -127,6 +127,26 @@ TEST(MidiOutput, FileEventsPreserveDinBytesAndMirrorConfiguredChannelAndMessageS
   EXPECT_EQ(sendMidiFileEvent(serial, Event{{0x80, 60, 0}, 3}, 2), 3u);
   EXPECT_EQ(usbMIDI.messages.size(), 2u);
 }
+
+TEST(MidiOutput, ContinuousPassthroughReturnsToTheLoopAfterABoundedBatch) {
+  struct Input {
+    int reads = 0;
+    bool read() { ++reads; return true; }
+    midi::MidiType getType() { return midi::NoteOn; }
+    uint8_t getData1() { return 60; }
+    uint8_t getData2() { return 100; }
+    uint8_t getChannel() { return 1; }
+    unsigned getSysExArrayLength() { return 0; }
+    const uint8_t *getSysExArray() { return nullptr; }
+  } input;
+  MIDI1 = {};
+  usbMIDI = {};
+  usb_configuration = 1;
+  forwardMidiInput(input);
+  EXPECT_EQ(input.reads, 32);
+  EXPECT_EQ(MIDI1.messages.size(), 32u);
+  EXPECT_EQ(usbMIDI.messages.size(), 32u);
+}
 } // namespace outputTests
 
 // ═══════════════════════════════════════════════════════════════════════════════

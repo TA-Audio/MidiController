@@ -193,7 +193,6 @@ static void servicePresetDisplayRefresh() {
 }
 
 static void serviceMidiPassthrough() {
-  forwardMidiInput(MIDI1);
   forwardMidiInput(MIDI2);
   forwardMidiInput(MIDI3);
 }
