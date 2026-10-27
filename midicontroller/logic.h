@@ -23,6 +23,7 @@ static constexpr unsigned long initialLoadDelayMs = 1000;
 static constexpr unsigned long switchDisplayPeriodMs = 1500;
 static constexpr unsigned long presetNameScrollPeriodMs = 500;
 static constexpr unsigned long eepromCommitDelayMs = 200;
+static constexpr uint32_t midiFileActivityHoldMs = 100;
 
 // ── Display ──────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,64 @@ inline MidiFilePlaybackActions midiFilePlaybackActions(bool sendFileClock,
 // ── EEPROM addresses ─────────────────────────────────────────────────────────
 
 static constexpr int presetEepromAddress = 0;
+static constexpr int controllerStateEepromAddress = presetEepromAddress + sizeof(int);
+
+struct StoredControllerState {
+  uint32_t magic;
+  uint32_t version;
+  uint32_t presetIndex;
+  uint32_t presetSignature;
+  uint32_t toggleMask;
+  uint32_t checksum;
+};
+
+inline uint32_t controllerStateChecksum(const StoredControllerState &state) {
+  uint32_t hash = 2166136261UL;
+  const uint32_t words[] = {state.version, state.presetIndex, state.presetSignature, state.toggleMask};
+  for (uint32_t word : words) {
+    for (int byte = 0; byte < 4; ++byte) {
+      hash = (hash ^ (word & 0xff)) * 16777619UL;
+      word >>= 8;
+    }
+  }
+  return hash;
+}
+
+inline StoredControllerState makeControllerState(int index, uint32_t signature, uint8_t mask) {
+  StoredControllerState state = {0x53594e54UL, 1, static_cast<uint32_t>(index), signature, mask, 0};
+  state.checksum = controllerStateChecksum(state);
+  return state;
+}
+
+inline bool validControllerState(const StoredControllerState &state, int count) {
+  return state.magic == 0x53594e54UL && state.version == 1 &&
+    count > 0 && state.presetIndex < static_cast<uint32_t>(count) &&
+    state.toggleMask < (1UL << switchCount) &&
+    state.checksum == controllerStateChecksum(state);
+}
+
+template <typename Eeprom>
+void writeControllerState(Eeprom &eeprom, const StoredControllerState &state) {
+  StoredControllerState previous;
+  eeprom.get(controllerStateEepromAddress, previous);
+  if (memcmp(&state, &previous, sizeof(state)) == 0) return;
+  StoredControllerState unpublished = state;
+  unpublished.magic = 0;
+  // Publish the marker last so interrupted writes are rejected.
+  eeprom.put(controllerStateEepromAddress, unpublished);
+  eeprom.put(controllerStateEepromAddress, state.magic);
+  const int index = static_cast<int>(state.presetIndex);
+  eeprom.put(presetEepromAddress, index);
+}
+
+inline uint8_t consumeBootToggleMask(StoredControllerState &state, int index,
+                                    uint32_t signature, int count) {
+  const uint8_t mask = validControllerState(state, count) &&
+    state.presetIndex == static_cast<uint32_t>(index) && state.presetSignature == signature
+      ? static_cast<uint8_t>(state.toggleMask) : 0;
+  state.magic = 0;
+  return mask;
+}
 
 // ── Pure logic functions ─────────────────────────────────────────────────────
 
@@ -106,6 +165,50 @@ inline int clampMidi(int value) {
 /// the reference time.  Handles unsigned wrap-around correctly.
 inline bool hasElapsed(unsigned long currentMs, unsigned long start, unsigned long durationMs) {
   return (currentMs - start) >= durationMs;
+}
+
+struct MidiFileActivity {
+  bool hasSent = false;
+  bool pendingDisplay = false;
+  uint32_t lastSentMillis = 0;
+  uint32_t lastDisplayedMillis = 0;
+
+  constexpr void reset() { hasSent = pendingDisplay = false; }
+
+  constexpr void recordSent(uint32_t now) {
+    hasSent = true;
+    pendingDisplay = true;
+    lastSentMillis = now;
+  }
+
+  constexpr void markDisplayed(uint32_t now) {
+    // Hold each pending event from its first LCD update, not just its send time.
+    if (!pendingDisplay) return;
+    pendingDisplay = false;
+    lastDisplayedMillis = now;
+  }
+
+  constexpr bool visible(bool playing, uint32_t now) const {
+    return playing && hasSent && (pendingDisplay ||
+      static_cast<uint32_t>(now - lastSentMillis) < midiFileActivityHoldMs ||
+      static_cast<uint32_t>(now - lastDisplayedMillis) < midiFileActivityHoldMs);
+  }
+};
+
+template <typename Display>
+void drawMidiFileActivity(Display &display, MidiFileActivity &activity, bool playing,
+                          bool &displayed, uint32_t now, bool force = false) {
+  const bool visible = activity.visible(playing, now);
+  if (force || visible != displayed) {
+    display.setCursor(lcdColumnCount - 1, 0);
+    display.print(visible ? '*' : ' ');
+    displayed = visible;
+  }
+  if (visible) activity.markDisplayed(now);
+}
+
+constexpr int presetNameColumns(bool playingMidiFile) {
+  return lcdColumnCount - (playingMidiFile ? 1 : 0);
 }
 
 /// Extract the leading decimal number from a filename (e.g. "12.json" -> 12).
@@ -147,14 +250,13 @@ inline void calculateSwitchPadding(int sw1Len, int sw2Len, int sw3Len,
   rightPad = (totalLength < lcdColumnCount) ? (lcdColumnCount - totalLength + 1) / 2 : 0;
 }
 
-/// Return true when the preset index can be incremented.
-inline bool canNavigateNext(int currentPreset, int presetCount) {
-  return currentPreset < (presetCount - 1);
-}
-
-/// Return true when the preset index can be decremented.
-inline bool canNavigatePrev(int currentPreset) {
-  return currentPreset > 0;
+/// Return the adjacent preset, wrapping at either end; -1 means no presets.
+inline int adjacentPresetIndex(int currentPreset, int presetCount, int direction) {
+  if (presetCount <= 0) return -1;
+  if (currentPreset < 0 || currentPreset >= presetCount) return 0;
+  if (direction > 0) return (currentPreset + 1) % presetCount;
+  if (direction < 0) return (currentPreset + presetCount - 1) % presetCount;
+  return currentPreset;
 }
 
 // ── EEPROM validation ────────────────────────────────────────────────────────
@@ -181,10 +283,7 @@ inline int computePrefetchCandidate(int currentPreset, int presetCount,
                                     int navigationDirection, int alreadyPrefetchedIndex) {
   if (presetCount <= 1) return -1;
 
-  int candidate = currentPreset + navigationDirection;
-  if (candidate < 0 || candidate >= presetCount) {
-    candidate = currentPreset - navigationDirection;
-  }
+  const int candidate = adjacentPresetIndex(currentPreset, presetCount, navigationDirection);
 
   if (candidate < 0 || candidate >= presetCount || candidate == currentPreset) {
     return -1;
@@ -199,13 +298,18 @@ inline int computePrefetchCandidate(int currentPreset, int presetCount,
 
 // ── Filename utilities ───────────────────────────────────────────────────────
 
-/// Check whether a filename ends with ".json" (case-sensitive).
+/// Match JSON extensions even when FAT preserves an existing file's capitalization.
 inline bool hasJsonExtension(const char *filename) {
   if (filename == nullptr) return false;
   const int nameLength = (int)strlen(filename);
   const int extLength = 5;  // ".json"
   if (nameLength < extLength) return false;
-  return strcmp(filename + nameLength - extLength, ".json") == 0;
+  const char *extension = filename + nameLength - extLength;
+  return extension[0] == '.' &&
+    (extension[1] == 'j' || extension[1] == 'J') &&
+    (extension[2] == 's' || extension[2] == 'S') &&
+    (extension[3] == 'o' || extension[3] == 'O') &&
+    (extension[4] == 'n' || extension[4] == 'N');
 }
 
 // ── PC offset ────────────────────────────────────────────────────────────────

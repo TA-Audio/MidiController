@@ -42,6 +42,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Test preset ordering and saving
+        run: npm test
+
       - name: Build
         run: npm run build
 

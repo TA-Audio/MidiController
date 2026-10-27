@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { Preset, SwitchKey } from './preset';
-import { DEFAULT_CHANNEL, LCD_COLUMNS, SWITCH_KEYS, lcdSwitchRow, newFileInfo, parsePreset, serializePreset, validatePreset } from './preset';
+import type { Preset, SwitchAction, SwitchKey } from './preset';
+import { DEFAULT_CHANNEL, GESTURE_KEYS, LCD_COLUMNS, SWITCH_KEYS, emptyAction, lcdSwitchRow, newFileInfo, parsePreset, serializePreset, validatePreset } from './preset';
 import { CcList, Checkbox, NumberField, PcList, TextField } from './fields';
 
 interface Props {
@@ -35,6 +35,17 @@ function LcdPreview({ preset }: { preset: Preset }) {
   );
 }
 
+function ActionEditor({ title, action, onChange, channel }: { title: string; action: SwitchAction; onChange: (a: SwitchAction) => void; channel: number }) {
+  return (
+    <section className="card">
+      <h4>{title}</h4>
+      <TextField label="Action label" value={action.Name} onChange={(Name) => onChange({ ...action, Name })} maxHint={6} />
+      <PcList title="Program Change" list={action.PC} onChange={(PC) => onChange({ ...action, PC })} defaultChannel={channel} />
+      <CcList title="Control Change" list={action.CC} onChange={(CC) => onChange({ ...action, CC })} defaultChannel={channel} />
+    </section>
+  );
+}
+
 function SwitchCard({ k, preset, update, channel }: { k: SwitchKey; preset: Preset; update: (p: Preset) => void; channel: number }) {
   const sw = preset[k];
   const set = (patch: Partial<typeof sw>) => update({ ...preset, [k]: { ...sw, ...patch } });
@@ -43,9 +54,13 @@ function SwitchCard({ k, preset, update, channel }: { k: SwitchKey; preset: Pres
     <section className="card">
       <h3>{k.replace('Switch', 'Switch ')}</h3>
       {fileMode && <p className="hint">A MIDI file is assigned, so this switch acts as Play / Stop and shows “Play” on the LCD.</p>}
+      <fieldset className="preset-fields" disabled={fileMode}>
       <div className="row">
         <TextField label="Label" value={sw.Name} onChange={(v) => set({ Name: v })} maxHint={6} />
-        <Checkbox label="Toggle" title="Alternate between on (127) and off (0) with each press" checked={sw.Toggle} onChange={(v) => set({ Toggle: v })} />
+        <Checkbox label="Toggle" title="Alternate between On and Off states" checked={sw.Toggle} onChange={(v) => set({
+          Toggle: v, TapTempo: false, Sequence: undefined,
+          On: v ? sw.On : undefined, Off: v ? sw.Off : undefined,
+        })} />
       </div>
       <PcList title="Program Change" list={sw.PC} onChange={(PC) => set({ PC })} defaultChannel={channel} />
       <CcList
@@ -55,6 +70,42 @@ function SwitchCard({ k, preset, update, channel }: { k: SwitchKey; preset: Pres
         defaultChannel={channel}
         valueHint={sw.Toggle ? 'Toggle mode: values are overridden to 127 (on) / 0 (off).' : undefined}
       />
+      <div className="row">
+        <Checkbox label="Tap tempo" checked={!!sw.TapTempo} onChange={(v) => set({ TapTempo: v, Toggle: v ? false : sw.Toggle, Sequence: v ? undefined : sw.Sequence, On: v ? undefined : sw.On, Off: v ? undefined : sw.Off })} />
+        <Checkbox label="Explicit On/Off actions" checked={!!sw.On || !!sw.Off}
+          onChange={(v) => set({ On: v ? emptyAction() : undefined, Off: v ? emptyAction() : undefined, Toggle: v || sw.Toggle, TapTempo: false, Sequence: undefined })} />
+        <Checkbox label="Sequence mode" checked={sw.Sequence !== undefined}
+          onChange={(v) => set({ Sequence: v ? [emptyAction()] : undefined, Toggle: false, TapTempo: false, On: undefined, Off: undefined })} />
+      </div>
+      {(sw.On || sw.Off || sw.Sequence || sw.TapTempo) && <p className="hint">The primary action uses this mode instead of the legacy PC/CC lists above. Tap tempo uses 2–4 taps, 30–300 BPM, and is temporary. Sequences reset when changing presets.</p>}
+      {sw.On && <ActionEditor title="On state" action={sw.On} channel={channel} onChange={(On) => set({ On })} />}
+      {sw.Off && <ActionEditor title="Off state" action={sw.Off} channel={channel} onChange={(Off) => set({ Off })} />}
+      {sw.Sequence?.map((action, i) => (
+        <div key={i}>
+          <ActionEditor title={`Step ${i + 1}`} action={action} channel={channel} onChange={(next) => set({ Sequence: sw.Sequence!.map((a, n) => n === i ? next : a) })} />
+          <button type="button" className="small" disabled={i === 0} onClick={() => {
+            const steps = [...sw.Sequence!];
+            [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]];
+            set({ Sequence: steps });
+          }}>Move step up</button>
+          <button type="button" className="small danger" disabled={sw.Sequence!.length <= 1} onClick={() => set({ Sequence: sw.Sequence!.filter((_, n) => n !== i) })}>Remove step</button>
+        </div>
+      ))}
+      {sw.Sequence && <button type="button" className="small" disabled={sw.Sequence.length >= 16} onClick={() => set({ Sequence: [...sw.Sequence!, emptyAction()] })}>Add step</button>}
+      <h4>Switch gestures</h4>
+      <p className="hint">Without gestures the primary action fires immediately on press. With gestures it fires on release; double-tap waits 300 ms, and a 600 ms long press replaces the primary action. Press/Release actions always run on their respective edges. Use empty primary lists for a momentary-only switch.</p>
+      {GESTURE_KEYS.map((gesture) => (
+        <div key={gesture}>
+          <Checkbox label={gesture} checked={sw.Gestures?.[gesture] !== undefined} onChange={(enabled) => {
+            const gestures = { ...sw.Gestures };
+            if (enabled) gestures[gesture] = emptyAction();
+            else delete gestures[gesture];
+            set({ Gestures: Object.keys(gestures).length ? gestures : undefined });
+          }} />
+          {sw.Gestures?.[gesture] && <ActionEditor title={gesture} action={sw.Gestures[gesture]!} channel={channel} onChange={(action) => set({ Gestures: { ...sw.Gestures, [gesture]: action } })} />}
+        </div>
+      ))}
+      </fieldset>
     </section>
   );
 }

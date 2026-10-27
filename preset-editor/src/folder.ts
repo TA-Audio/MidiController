@@ -87,9 +87,37 @@ export async function deleteFile(handle: FileSystemDirectoryHandle, name: string
   }
 }
 
-export async function downloadZip(folderName: string, files: LoadedFile[]): Promise<void> {
+export async function saveNumberedFiles(handle: FileSystemDirectoryHandle, files: LoadedFile[], obsolete: string[]): Promise<number> {
+  await ensureWritable(handle);
+  for (const file of files) await writeFile(handle, file.name, file.text);
+  let deleted = 0;
+  for (const name of obsolete) {
+    if (files.some((f) => f.name === name)) continue;
+    // A case-only rename can refer to the destination itself on FAT/Windows.
+    const alias = files.find((f) => f.name.toLowerCase() === name.toLowerCase());
+    if (alias) {
+      try {
+        const oldHandle = await handle.getFileHandle(name);
+        const newHandle = await handle.getFileHandle(alias.name);
+        if (await oldHandle.isSameEntry(newHandle)) continue;
+      } catch (e) {
+        if ((e as DOMException).name !== 'NotFoundError') throw e;
+      }
+    }
+    await deleteFile(handle, name);
+    deleted++;
+  }
+  return deleted;
+}
+
+export function createPresetZip(files: LoadedFile[]): JSZip {
   const zip = new JSZip();
   for (const f of files) zip.file(f.name, f.text);
+  return zip;
+}
+
+export async function downloadZip(folderName: string, files: LoadedFile[]): Promise<void> {
+  const zip = createPresetZip(files);
   const blob = await zip.generateAsync({ type: 'blob' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

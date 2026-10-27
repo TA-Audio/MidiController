@@ -130,7 +130,8 @@ export function PcList({ title, list, onChange, defaultChannel }: { title: strin
         <div className="msg-row" key={i}>
           <NumberField label="Program (1–128)" value={m.PC} min={1} max={128} onChange={(v) => onChange(updateAt(list, i, { PC: v ?? 1 }))} />
           <NumberField label="Channel" value={m.Channel} min={1} max={16} onChange={(v) => onChange(updateAt(list, i, { Channel: v ?? DEFAULT_CHANNEL }))} />
-          <Checkbox label="USB" title="Send over USB Host MIDI instead of DIN" checked={m.USB} onChange={(v) => onChange(updateAt(list, i, { USB: v }))} />
+          <Checkbox label="USB Host" title="Connected USB pedal" checked={m.USB} onChange={(v) => onChange(updateAt(list, i, { USB: v, USBDevice: false }))} />
+          <Checkbox label="USB Computer" title="DAW via Teensy device USB port" checked={!!m.USBDevice} onChange={(v) => onChange(updateAt(list, i, { USBDevice: v, USB: false }))} />
           <RowActions i={i} count={list.length} onMove={(d) => onChange(move(list, i, d))} onRemove={() => onChange(list.filter((_, j) => j !== i))} />
         </div>
       ))}
@@ -166,7 +167,8 @@ export function CcList({
           <NumberField label="CC (0–127)" value={m.CC} min={0} max={127} onChange={(v) => onChange(updateAt(list, i, { CC: v ?? 0 }))} />
           <NumberField label="Value (0–127)" value={m.Value} min={0} max={127} onChange={(v) => onChange(updateAt(list, i, { Value: v ?? 0 }))} />
           <NumberField label="Channel" value={m.Channel} min={1} max={16} onChange={(v) => onChange(updateAt(list, i, { Channel: v ?? DEFAULT_CHANNEL }))} />
-          <Checkbox label="USB" title="Send over USB Host MIDI instead of DIN" checked={m.USB} onChange={(v) => onChange(updateAt(list, i, { USB: v }))} />
+          <Checkbox label="USB Host" title="Connected USB pedal" checked={m.USB} onChange={(v) => onChange(updateAt(list, i, { USB: v, USBDevice: false }))} />
+          <Checkbox label="USB Computer" title="DAW via Teensy device USB port" checked={!!m.USBDevice} onChange={(v) => onChange(updateAt(list, i, { USBDevice: v, USB: false }))} />
           <RowActions i={i} count={list.length} onMove={(d) => onChange(move(list, i, d))} onRemove={() => onChange(list.filter((_, j) => j !== i))} />
         </div>
       ))}

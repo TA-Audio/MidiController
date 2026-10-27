@@ -1,6 +1,156 @@
 #include <gtest/gtest.h>
 #include "logic.h"
 
+TEST(MidiFileActivity, PlaybackWithoutSentEventsRemainsDark) {
+  MidiFileActivity activity;
+  EXPECT_FALSE(activity.visible(false, 0));
+  EXPECT_FALSE(activity.visible(true, 0));
+  EXPECT_FALSE(activity.visible(true, 1000));
+}
+
+TEST(MidiFileActivity, SentEventsLightForExactlyOneHundredMilliseconds) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  activity.markDisplayed(1000);
+  EXPECT_TRUE(activity.visible(true, 1000));
+  EXPECT_TRUE(activity.visible(true, 1099));
+  EXPECT_FALSE(activity.visible(true, 1100));
+  EXPECT_FALSE(activity.visible(true, 2000));
+}
+
+TEST(MidiFileActivity, DenseEventsExtendThePulseUntilTheLastEventExpires) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  activity.recordSent(1050);
+  activity.markDisplayed(1050);
+  EXPECT_TRUE(activity.visible(true, 1100));
+  EXPECT_TRUE(activity.visible(true, 1149));
+  EXPECT_FALSE(activity.visible(true, 1150));
+}
+
+TEST(MidiFileActivity, StopAndRestartCannotDisplayStaleActivity) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  EXPECT_FALSE(activity.visible(false, 1001));
+  activity.reset();
+  EXPECT_FALSE(activity.visible(true, 1002));
+  activity.recordSent(1003);
+  EXPECT_TRUE(activity.visible(true, 1003));
+}
+
+TEST(MidiFileActivity, HandlesMillisWraparoundAndAnEventAtZero) {
+  MidiFileActivity activity;
+  activity.recordSent(UINT32_MAX - 49);
+  activity.markDisplayed(UINT32_MAX - 49);
+  EXPECT_TRUE(activity.visible(true, 49));
+  EXPECT_FALSE(activity.visible(true, 50));
+  activity.recordSent(0);
+  activity.markDisplayed(0);
+  EXPECT_TRUE(activity.visible(true, 0));
+  EXPECT_FALSE(activity.visible(true, 100));
+}
+
+TEST(MidiFileActivity, ReservesOnlyTheLastColumnDuringPlayback) {
+  EXPECT_EQ(presetNameColumns(false), 20);
+  EXPECT_EQ(presetNameColumns(true), 19);
+  EXPECT_EQ(20 - presetNameColumns(true), 1);  // A 20-character name must scroll.
+}
+
+TEST(MidiFileActivity, DelayedDisplayCannotLoseTransmittedEvent) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  EXPECT_TRUE(activity.visible(true, 1500));
+  activity.markDisplayed(1500);
+  EXPECT_TRUE(activity.visible(true, 1599));
+  EXPECT_FALSE(activity.visible(true, 1600));
+}
+
+TEST(MidiFileActivity, RedrawDoesNotKeepExtendingAnAlreadyDisplayedPulse) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  activity.markDisplayed(1010);
+  activity.markDisplayed(1050);
+  EXPECT_TRUE(activity.visible(true, 1109));
+  EXPECT_FALSE(activity.visible(true, 1110));
+}
+
+TEST(MidiFileActivity, NewEventExtendsVisiblePulseButStopDiscardsPendingDisplay) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  activity.markDisplayed(1010);
+  activity.recordSent(1050);
+  activity.markDisplayed(1060);
+  EXPECT_TRUE(activity.visible(true, 1159));
+  EXPECT_FALSE(activity.visible(true, 1160));
+  activity.recordSent(1200);
+  EXPECT_FALSE(activity.visible(false, 1201));
+  activity.reset();
+  EXPECT_FALSE(activity.visible(true, 1202));
+}
+
+namespace {
+struct ActivityDisplay {
+  int column = -1;
+  int row = -1;
+  int writes = 0;
+  char character = ' ';
+  void setCursor(int x, int y) { column = x; row = y; }
+  void print(char value) { character = value; ++writes; }
+};
+}
+
+TEST(MidiFileActivity, DelayedLcdServiceDrawsTopRightThenClearsAfterVisibleHold) {
+  ActivityDisplay lcd;
+  MidiFileActivity activity;
+  bool displayed = false;
+  activity.recordSent(1000);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1500);
+  EXPECT_EQ(lcd.column, 19);
+  EXPECT_EQ(lcd.row, 0);
+  EXPECT_EQ(lcd.character, '*');
+  EXPECT_TRUE(displayed);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1599);
+  EXPECT_EQ(lcd.writes, 1);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1600);
+  EXPECT_EQ(lcd.character, ' ');
+  EXPECT_FALSE(displayed);
+  EXPECT_EQ(lcd.writes, 2);
+}
+
+TEST(MidiFileActivity, PresetRedrawAndOverlayClearRestoreTheLitIndicator) {
+  ActivityDisplay lcd;
+  MidiFileActivity activity;
+  bool displayed = false;
+  activity.recordSent(1000);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1000);
+  lcd.character = ' ';
+  drawMidiFileActivity(lcd, activity, true, displayed, 1020, true);
+  EXPECT_EQ(lcd.character, '*');
+  lcd.character = ' ';
+  displayed = false;
+  drawMidiFileActivity(lcd, activity, true, displayed, 1030);
+  EXPECT_EQ(lcd.character, '*');
+  drawMidiFileActivity(lcd, activity, true, displayed, 1100);
+  EXPECT_EQ(lcd.character, ' ');
+}
+
+TEST(MidiFileActivity, AlreadyLitIndicatorAcknowledgesNewEventsAndStopClearsIt) {
+  ActivityDisplay lcd;
+  MidiFileActivity activity;
+  bool displayed = false;
+  activity.recordSent(1000);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1000);
+  activity.recordSent(1090);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1095);
+  EXPECT_EQ(lcd.writes, 1);
+  EXPECT_FALSE(activity.pendingDisplay);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1194);
+  EXPECT_EQ(lcd.character, '*');
+  drawMidiFileActivity(lcd, activity, false, displayed, 1195);
+  EXPECT_EQ(lcd.character, ' ');
+  EXPECT_FALSE(displayed);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ClampMidi
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -361,44 +511,59 @@ TEST(CalculateSwitchPadding, TypicalPresetLayout) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CanNavigateNext
+// AdjacentPresetIndex: next
 // ═══════════════════════════════════════════════════════════════════════════════
 
-TEST(CanNavigateNext, CanAdvance) {
-  EXPECT_TRUE(canNavigateNext(0, 10));
+TEST(AdjacentPresetIndex, CanAdvance) {
+  EXPECT_EQ(adjacentPresetIndex(0, 10, 1), 1);
 }
 
-TEST(CanNavigateNext, AtLastPreset) {
-  EXPECT_FALSE(canNavigateNext(9, 10));
+TEST(AdjacentPresetIndex, AtLastPreset) {
+  EXPECT_EQ(adjacentPresetIndex(9, 10, 1), 0);
 }
 
-TEST(CanNavigateNext, OnlyOnePreset) {
-  EXPECT_FALSE(canNavigateNext(0, 1));
+TEST(AdjacentPresetIndex, OnlyOnePreset) {
+  EXPECT_EQ(adjacentPresetIndex(0, 1, 1), 0);
+  EXPECT_EQ(adjacentPresetIndex(0, 1, -1), 0);
 }
 
-TEST(CanNavigateNext, EmptyList) {
-  // presetCount=0, currentPreset=0 → 0 < -1 is false
-  EXPECT_FALSE(canNavigateNext(0, 0));
+TEST(AdjacentPresetIndex, EmptyList) {
+  EXPECT_EQ(adjacentPresetIndex(0, 0, 1), -1);
+  EXPECT_EQ(adjacentPresetIndex(0, 0, -1), -1);
 }
 
-TEST(CanNavigateNext, MiddleOfList) {
-  EXPECT_TRUE(canNavigateNext(5, 150));
+TEST(AdjacentPresetIndex, MiddleOfList) {
+  EXPECT_EQ(adjacentPresetIndex(5, 150, 1), 6);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CanNavigatePrev
+// AdjacentPresetIndex: previous
 // ═══════════════════════════════════════════════════════════════════════════════
 
-TEST(CanNavigatePrev, CanGoBack) {
-  EXPECT_TRUE(canNavigatePrev(5));
+TEST(AdjacentPresetIndex, CanGoBack) {
+  EXPECT_EQ(adjacentPresetIndex(5, 10, -1), 4);
 }
 
-TEST(CanNavigatePrev, AtFirstPreset) {
-  EXPECT_FALSE(canNavigatePrev(0));
+TEST(AdjacentPresetIndex, AtFirstPreset) {
+  EXPECT_EQ(adjacentPresetIndex(0, 10, -1), 9);
 }
 
-TEST(CanNavigatePrev, SecondPreset) {
-  EXPECT_TRUE(canNavigatePrev(1));
+TEST(AdjacentPresetIndex, SecondPreset) {
+  EXPECT_EQ(adjacentPresetIndex(1, 10, -1), 0);
+}
+
+TEST(AdjacentPresetIndex, RepeatedWraps) {
+  for (int count : {2, 5, 150}) {
+    for (int direction : {-1, 1}) {
+      int index = 0;
+      for (int step = 0; step < count * 3; ++step) {
+        const int target = adjacentPresetIndex(index, count, direction);
+        EXPECT_EQ(computePrefetchCandidate(index, count, direction, -1), target);
+        index = target;
+      }
+      EXPECT_EQ(index, 0);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -560,14 +725,12 @@ TEST(ComputePrefetchCandidate, BackwardFromMiddle) {
   EXPECT_EQ(computePrefetchCandidate(5, 10, -1, -1), 4);
 }
 
-TEST(ComputePrefetchCandidate, ForwardAtEndFallsBackToReverse) {
-  // current=9 (last), direction=+1 → candidate=10 OOB → tries 9-1=8
-  EXPECT_EQ(computePrefetchCandidate(9, 10, 1, -1), 8);
+TEST(ComputePrefetchCandidate, ForwardAtEndWraps) {
+  EXPECT_EQ(computePrefetchCandidate(9, 10, 1, -1), 0);
 }
 
-TEST(ComputePrefetchCandidate, BackwardAtStartFallsForward) {
-  // current=0, direction=-1 → candidate=-1 OOB → tries 0+1=1
-  EXPECT_EQ(computePrefetchCandidate(0, 10, -1, -1), 1);
+TEST(ComputePrefetchCandidate, BackwardAtStartWraps) {
+  EXPECT_EQ(computePrefetchCandidate(0, 10, -1, -1), 9);
 }
 
 TEST(ComputePrefetchCandidate, SinglePresetReturnsNegative) {
@@ -634,9 +797,10 @@ TEST(HasJsonExtension, SimilarExtensionNotJson) {
   EXPECT_FALSE(hasJsonExtension("file.jsonl"));
 }
 
-TEST(HasJsonExtension, UpperCaseNotMatched) {
-  // Case-sensitive: .JSON doesn't match .json
-  EXPECT_FALSE(hasJsonExtension("file.JSON"));
+TEST(HasJsonExtension, MatchesPreservedCapitalization) {
+  EXPECT_TRUE(hasJsonExtension("1.JSON"));
+  EXPECT_TRUE(hasJsonExtension("2.Json"));
+  EXPECT_TRUE(hasJsonExtension("3.jSoN"));
 }
 
 TEST(HasJsonExtension, HiddenJsonFile) {
@@ -828,8 +992,7 @@ TEST(NavigationPrefetch, ForwardThroughList) {
 
   // Navigate forward through all presets
   for (int i = 0; i < presetCount - 1; i++) {
-    EXPECT_TRUE(canNavigateNext(currentPreset, presetCount));
-    currentPreset++;
+    currentPreset = adjacentPresetIndex(currentPreset, presetCount, direction);
     int candidate = computePrefetchCandidate(currentPreset, presetCount, direction, prefetchedIndex);
     if (candidate >= 0) {
       prefetchedIndex = candidate;
@@ -837,7 +1000,7 @@ TEST(NavigationPrefetch, ForwardThroughList) {
   }
   // At the end
   EXPECT_EQ(currentPreset, 4);
-  EXPECT_FALSE(canNavigateNext(currentPreset, presetCount));
+  EXPECT_EQ(adjacentPresetIndex(currentPreset, presetCount, direction), 0);
 }
 
 TEST(NavigationPrefetch, BackwardThroughList) {
@@ -847,15 +1010,14 @@ TEST(NavigationPrefetch, BackwardThroughList) {
   int prefetchedIndex = -1;
 
   for (int i = 0; i < presetCount - 1; i++) {
-    EXPECT_TRUE(canNavigatePrev(currentPreset));
-    currentPreset--;
+    currentPreset = adjacentPresetIndex(currentPreset, presetCount, direction);
     int candidate = computePrefetchCandidate(currentPreset, presetCount, direction, prefetchedIndex);
     if (candidate >= 0) {
       prefetchedIndex = candidate;
     }
   }
   EXPECT_EQ(currentPreset, 0);
-  EXPECT_FALSE(canNavigatePrev(currentPreset));
+  EXPECT_EQ(adjacentPresetIndex(currentPreset, presetCount, direction), 4);
 }
 
 TEST(NavigationPrefetch, DirectionReversal) {
