@@ -35,6 +35,18 @@ export function presetRevision(bytes: Uint8Array): number {
   return hash;
 }
 
+export function presetSetRevision(files: { name: string; text: string }[]): number {
+  let hash = 2166136261;
+  const encoder = new TextEncoder();
+  for (const file of files) {
+    for (const text of [file.name, file.text]) {
+      for (const byte of encoder.encode(text)) hash = Math.imul(hash ^ byte, 16777619) >>> 0;
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+  }
+  return hash;
+}
+
 export interface LiveListing {
   presets: string[];
   midiFiles: string[];
@@ -52,6 +64,7 @@ interface Pending {
 }
 
 export class LiveMidiClient {
+  supportsPresetSets = false;
   private input: MIDIInput;
   private output: MIDIOutput;
   private onDisconnect: () => void;
@@ -116,7 +129,7 @@ export class LiveMidiClient {
     const id = this.nextId = this.nextId % 127 + 1;
     const packet = encodePacket(id, command, sequence, data);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => this.fail(new Error('USB request timed out. Check connection and Serial + MIDI firmware, then reconnect.')), 8000);
+      const timer = setTimeout(() => this.fail(new Error('USB request timed out. Check connection and Serial + MIDI firmware, then reconnect.')), command === 11 ? 60000 : 8000);
       this.pending = { id, command, sequence: 0, bytes: [], resolve, reject, timer };
       try { this.output.send(packet); } catch (e) { this.fail(e instanceof Error ? e : new Error(String(e))); }
     });
@@ -131,6 +144,7 @@ export class LiveMidiClient {
     if (hello.product !== 'Synapse' || hello.protocol !== 1 || hello.maxBytes !== MAX_LIVE_PRESET_BYTES) {
       throw new Error('Unsupported controller firmware/protocol.');
     }
+    this.supportsPresetSets = hello.presetSets === true;
   }
 
   async list(): Promise<LiveListing> {
@@ -145,6 +159,51 @@ export class LiveMidiClient {
   async read(name: string) {
     const text = await this.json(3, { name });
     return { text, revision: presetRevision(new TextEncoder().encode(text)) };
+  }
+
+  private async treeRevision(): Promise<number> {
+    const result = JSON.parse(await this.request(12));
+    if (!Number.isInteger(result.revision) || result.revision < 0 || result.revision > 0xffffffff) {
+      throw new Error('Invalid preset-set revision.');
+    }
+    return result.revision;
+  }
+
+  async readSet() {
+    if (!this.supportsPresetSets) throw new Error('Update controller firmware for full USB preset management.');
+    const revision = await this.treeRevision();
+    const listing = await this.list();
+    if (listing.presets.length > 150) throw new Error('Controller exceeds the 150-preset limit.');
+    const files = [];
+    for (const name of listing.presets) files.push({ name, text: (await this.read(name)).text });
+    if (revision !== await this.treeRevision()) throw new Error('Preset set changed while loading; reload before editing.');
+    return { files, revision, listing };
+  }
+
+  async saveSet(texts: string[], revision: number, sources: string[] = []) {
+    if (!this.supportsPresetSets) throw new Error('Update controller firmware for full USB preset management.');
+    if (texts.length > 150) throw new Error('At most 150 presets are supported.');
+    const files = texts.map((text) => new TextEncoder().encode(text));
+    if (files.some((bytes) => !bytes.length || bytes.length > MAX_LIVE_PRESET_BYTES)) {
+      throw new Error('Each live preset must be 1–8192 UTF-8 bytes.');
+    }
+    await this.json(10, { count: files.length, revision });
+    try {
+      for (let index = 0; index < files.length; ++index) {
+        const bytes = files[index];
+        await this.json(4, { index, size: bytes.length, source: sources[index] ?? '' });
+        for (let offset = 0; offset < bytes.length; offset += LIVE_CHUNK_BYTES) {
+          await this.request(5, bytes.subarray(offset, offset + LIVE_CHUNK_BYTES), offset / LIVE_CHUNK_BYTES);
+        }
+        await this.request(6);
+      }
+      await this.request(11);
+      return presetSetRevision(texts.map((text, index) => ({ name: `${index + 1}.json`, text })));
+    } catch (error) {
+      try { await this.request(9); }
+      catch (abortError) { throw new Error(`${String(error)}; recovery request failed: ${String(abortError)}. Reconnect and reload the controller set.`); }
+      throw new Error(`${String(error)}. Reload the controller set before retrying; an interrupted commit may have completed.`);
+    }
   }
 
   async save(name: string, text: string, revision: number) {

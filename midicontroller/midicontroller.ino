@@ -22,6 +22,9 @@ bool resetPresetDisplay = false;
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // I2C address 0x27, 20 columns and 4 rows
 JsonVariant activePreset;
 bool activePresetValid = false;
+bool livePresetDetached = false;
+bool livePresetHasSlot = true;
+bool liveStorageFault = false;
 int currentPreset = 0;
 int presetCount = 0;
 DMAMEM char presetList[maxPresetListSize][maxPresetNameLength];
@@ -842,6 +845,8 @@ void executeSwitchLogic(int switchNo) {
 }
 
 FLASHMEM void changePreset() {
+  livePresetDetached = false;
+  livePresetHasSlot = true;
   if (resetPresetDisplay) {
     resetPresetDisplay = false;
   }
@@ -1051,6 +1056,10 @@ FLASHMEM void setup() {
     showError("SD recovery failed", "Check synapse.txn/bak");
     while (true) {}
   }
+  if (!recoverLiveSet()) {
+    showError("SD recovery failed", "Check synset.txn/bak");
+    while (true) {}
+  }
   loadPresetList();
   beginLiveEditor();
 
@@ -1081,8 +1090,8 @@ void loop() {
   MIDI1.read();
   serviceMidiPassthrough();
 
-  pollButtons();
-  if (hasLoaded && activePresetValid) {
+  if (!liveStorageFault) pollButtons();
+  if (!liveStorageFault && hasLoaded && activePresetValid) {
     const char *keys[] = {"Switch1", "Switch2", "Switch3"};
     for (int i = 0; i < switchCount; ++i) {
       if (i == 0 && !activePreset["FileInfo"].isNull()) continue;
@@ -1126,6 +1135,6 @@ void loop() {
   servicePresetDisplayRefresh();
   servicePresetNameScroll();
   serviceMidiFileActivityIndicator();
-  servicePresetPrefetch();
+  if (!liveStorageFault) servicePresetPrefetch();
   commitPendingEepromWrites();
 }

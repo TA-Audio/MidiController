@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodePacket, encodePacket, LIVE_CHUNK_BYTES, LiveMidiClient, presetRevision } from '../src/liveMidi.ts';
+import { decodePacket, encodePacket, LIVE_CHUNK_BYTES, LiveMidiClient, presetRevision, presetSetRevision } from '../src/liveMidi.ts';
 
 class MockPort extends EventTarget {
   state = 'connected';
@@ -164,4 +164,108 @@ test('unrelated MIDI and wrong response IDs are ignored; concurrent requests are
   emit(encodePacket(packet!.id, 0x43, 0, new TextEncoder().encode('{}')));
   assert.equal((await read).text, '{}');
   client.close();
+});
+
+function setController() {
+  const input = new MockPort(), output = new MockPort();
+  let files = [{ name: 'Lead.json', text: '{"Name":"Lead"}' }, { name: 'Rhythm.json', text: '{"Name":"Rhythm"}' }];
+  let revision = 123;
+  let staged: string[] | null = null;
+  let upload: number[] = [];
+  let failCommit = false;
+  let mutateDuringRead = false;
+  const commands: number[] = [];
+  output.send = (data) => {
+    const packet = decodePacket(new Uint8Array(data))!;
+    commands.push(packet.command);
+    const request = packet.bytes.length && packet.command !== 5 ? JSON.parse(new TextDecoder().decode(packet.bytes)) : {};
+    let response = 'OK', error = false;
+    switch (packet.command) {
+      case 1: response = '{"product":"Synapse","protocol":1,"maxBytes":8192,"presetSets":true}'; break;
+      case 2: response = JSON.stringify({ presets: files.map((file) => file.name), midiFiles: ['song.mid'] }); break;
+      case 3:
+        response = files.find((file) => file.name === request.name)!.text;
+        if (mutateDuringRead) ++revision;
+        break;
+      case 12: response = JSON.stringify({ revision }); break;
+      case 10:
+        if (request.revision !== revision) { error = true; response = 'Preset set changed'; }
+        else staged = [];
+        break;
+      case 4: upload = []; break;
+      case 5: upload.push(...packet.bytes); break;
+      case 6: staged!.push(new TextDecoder().decode(new Uint8Array(upload))); break;
+      case 11:
+        if (failCommit) { error = true; response = 'SD commit failed'; }
+        else { files = staged!.map((text, index) => ({ name: `${index + 1}.json`, text })); revision = presetSetRevision(files); }
+        break;
+      case 9: staged = null; break;
+    }
+    const bytes = new TextEncoder().encode(response);
+    queueMicrotask(() => {
+      for (let offset = 0; offset < bytes.length; offset += LIVE_CHUNK_BYTES) {
+        const event = new Event('midimessage');
+        Object.defineProperty(event, 'data', { value: new Uint8Array(encodePacket(packet.id, error ? 127 : packet.command | 64,
+          offset / LIVE_CHUNK_BYTES, bytes.subarray(offset, offset + LIVE_CHUNK_BYTES), offset + LIVE_CHUNK_BYTES >= bytes.length)) });
+        input.dispatchEvent(event);
+      }
+    });
+  };
+  const client = new LiveMidiClient(input as unknown as MIDIInput, output as unknown as MIDIOutput);
+  return { client, commands, get files() { return files; }, set failCommit(value: boolean) { failCommit = value; }, set mutateDuringRead(value: boolean) { mutateDuringRead = value; } };
+}
+
+test('full USB set loads consistently and saves reordered, duplicated and added presets numerically', async () => {
+  assert.equal(presetSetRevision([{ name: '1.json', text: '{"Name":"Original"}' }, { name: '2.json', text: '{"Name":"Original"}' }]), 3620011878);
+  const mock = setController();
+  await mock.client.hello();
+  const set = await mock.client.readSet();
+  assert.deepEqual(set.files.map((file) => file.name), ['Lead.json', 'Rhythm.json']);
+  const texts = [set.files[1].text, set.files[0].text, '{"Name":"New 🎸"}'];
+  assert.equal(await mock.client.saveSet(texts, set.revision),
+    presetSetRevision(texts.map((text, index) => ({ name: `${index + 1}.json`, text }))));
+  assert.deepEqual(mock.files, texts.map((text, index) => ({ name: `${index + 1}.json`, text })));
+  assert.ok(!mock.commands.includes(7));
+  assert.deepEqual((await mock.client.readSet()).files, mock.files);
+  mock.client.close();
+});
+
+test('full USB set supports deleting all presets and adding to an empty controller', async () => {
+  const mock = setController();
+  await mock.client.hello();
+  const revision = await mock.client.saveSet([], 123);
+  assert.deepEqual(mock.files, []);
+  await mock.client.saveSet(['{"Name":"First"}'], revision);
+  assert.equal(mock.files[0].name, '1.json');
+  mock.client.close();
+});
+
+test('full USB set detects stale snapshots and aborts failed commits without losing edits', async () => {
+  const mock = setController();
+  await mock.client.hello();
+  await assert.rejects(mock.client.saveSet([], 0), /changed/);
+  mock.failCommit = true;
+  await assert.rejects(mock.client.saveSet(['{}'], 123), /Reload the controller set/);
+  assert.equal(mock.commands.at(-1), 9);
+  assert.equal(mock.files[0].name, 'Lead.json');
+  mock.client.close();
+});
+
+test('full USB loading rejects a changing set and saving enforces limits before beginning', async () => {
+  const mock = setController();
+  await mock.client.hello();
+  mock.mutateDuringRead = true;
+  await assert.rejects(mock.client.readSet(), /changed while loading/);
+  await assert.rejects(mock.client.saveSet(Array(151).fill('{}'), 123), /150/);
+  await assert.rejects(mock.client.saveSet(['x'.repeat(8193)], 123), /8192/);
+  assert.ok(!mock.commands.includes(10));
+  mock.client.close();
+});
+
+test('full USB management requires explicit firmware capability', async () => {
+  const mock = controller();
+  await mock.client.hello();
+  await assert.rejects(mock.client.readSet(), /Update controller firmware/);
+  await assert.rejects(mock.client.saveSet([], 0), /Update controller firmware/);
+  mock.client.close();
 });
