@@ -431,9 +431,10 @@ static void displayPresetName() {
   for (; column < columns; ++column) {
     lcd.print(' ');
   }
-  midiFileActivityDisplayed = midiFileActivity.visible(playingMidiFile, millis());
   if (playingMidiFile) {
-    lcd.print(midiFileActivityDisplayed ? '*' : ' ');
+    drawMidiFileActivity(lcd, midiFileActivity, true, midiFileActivityDisplayed, millis(), true);
+  } else {
+    midiFileActivityDisplayed = false;
   }
 }
 
@@ -472,11 +473,7 @@ static void serviceMidiFileActivityIndicator() {
   if (playbackChanged && !resetPresetDisplay) {
     displayPresetName();
   }
-  const bool visible = midiFileActivity.visible(playingMidiFile, millis());
-  if (visible == midiFileActivityDisplayed) return;
-  lcd.setCursor(lcdColumnCount - 1, 0);
-  lcd.print(visible ? '*' : ' ');
-  midiFileActivityDisplayed = visible;
+  drawMidiFileActivity(lcd, midiFileActivity, playingMidiFile, midiFileActivityDisplayed, millis());
 }
 
 static void stopMidiClock() {

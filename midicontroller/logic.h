@@ -169,20 +169,43 @@ inline bool hasElapsed(unsigned long currentMs, unsigned long start, unsigned lo
 
 struct MidiFileActivity {
   bool hasSent = false;
+  bool pendingDisplay = false;
   uint32_t lastSentMillis = 0;
+  uint32_t lastDisplayedMillis = 0;
 
-  constexpr void reset() { hasSent = false; }
+  constexpr void reset() { hasSent = pendingDisplay = false; }
 
   constexpr void recordSent(uint32_t now) {
     hasSent = true;
+    pendingDisplay = true;
     lastSentMillis = now;
   }
 
+  constexpr void markDisplayed(uint32_t now) {
+    // Hold each pending event from its first LCD update, not just its send time.
+    if (!pendingDisplay) return;
+    pendingDisplay = false;
+    lastDisplayedMillis = now;
+  }
+
   constexpr bool visible(bool playing, uint32_t now) const {
-    return playing && hasSent &&
-      static_cast<uint32_t>(now - lastSentMillis) < midiFileActivityHoldMs;
+    return playing && hasSent && (pendingDisplay ||
+      static_cast<uint32_t>(now - lastSentMillis) < midiFileActivityHoldMs ||
+      static_cast<uint32_t>(now - lastDisplayedMillis) < midiFileActivityHoldMs);
   }
 };
+
+template <typename Display>
+void drawMidiFileActivity(Display &display, MidiFileActivity &activity, bool playing,
+                          bool &displayed, uint32_t now, bool force = false) {
+  const bool visible = activity.visible(playing, now);
+  if (force || visible != displayed) {
+    display.setCursor(lcdColumnCount - 1, 0);
+    display.print(visible ? '*' : ' ');
+    displayed = visible;
+  }
+  if (visible) activity.markDisplayed(now);
+}
 
 constexpr int presetNameColumns(bool playingMidiFile) {
   return lcdColumnCount - (playingMidiFile ? 1 : 0);

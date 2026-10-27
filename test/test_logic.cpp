@@ -11,6 +11,7 @@ TEST(MidiFileActivity, PlaybackWithoutSentEventsRemainsDark) {
 TEST(MidiFileActivity, SentEventsLightForExactlyOneHundredMilliseconds) {
   MidiFileActivity activity;
   activity.recordSent(1000);
+  activity.markDisplayed(1000);
   EXPECT_TRUE(activity.visible(true, 1000));
   EXPECT_TRUE(activity.visible(true, 1099));
   EXPECT_FALSE(activity.visible(true, 1100));
@@ -21,6 +22,7 @@ TEST(MidiFileActivity, DenseEventsExtendThePulseUntilTheLastEventExpires) {
   MidiFileActivity activity;
   activity.recordSent(1000);
   activity.recordSent(1050);
+  activity.markDisplayed(1050);
   EXPECT_TRUE(activity.visible(true, 1100));
   EXPECT_TRUE(activity.visible(true, 1149));
   EXPECT_FALSE(activity.visible(true, 1150));
@@ -39,9 +41,11 @@ TEST(MidiFileActivity, StopAndRestartCannotDisplayStaleActivity) {
 TEST(MidiFileActivity, HandlesMillisWraparoundAndAnEventAtZero) {
   MidiFileActivity activity;
   activity.recordSent(UINT32_MAX - 49);
+  activity.markDisplayed(UINT32_MAX - 49);
   EXPECT_TRUE(activity.visible(true, 49));
   EXPECT_FALSE(activity.visible(true, 50));
   activity.recordSent(0);
+  activity.markDisplayed(0);
   EXPECT_TRUE(activity.visible(true, 0));
   EXPECT_FALSE(activity.visible(true, 100));
 }
@@ -50,6 +54,101 @@ TEST(MidiFileActivity, ReservesOnlyTheLastColumnDuringPlayback) {
   EXPECT_EQ(presetNameColumns(false), 20);
   EXPECT_EQ(presetNameColumns(true), 19);
   EXPECT_EQ(20 - presetNameColumns(true), 1);  // A 20-character name must scroll.
+}
+
+TEST(MidiFileActivity, DelayedDisplayCannotLoseTransmittedEvent) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  EXPECT_TRUE(activity.visible(true, 1500));
+  activity.markDisplayed(1500);
+  EXPECT_TRUE(activity.visible(true, 1599));
+  EXPECT_FALSE(activity.visible(true, 1600));
+}
+
+TEST(MidiFileActivity, RedrawDoesNotKeepExtendingAnAlreadyDisplayedPulse) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  activity.markDisplayed(1010);
+  activity.markDisplayed(1050);
+  EXPECT_TRUE(activity.visible(true, 1109));
+  EXPECT_FALSE(activity.visible(true, 1110));
+}
+
+TEST(MidiFileActivity, NewEventExtendsVisiblePulseButStopDiscardsPendingDisplay) {
+  MidiFileActivity activity;
+  activity.recordSent(1000);
+  activity.markDisplayed(1010);
+  activity.recordSent(1050);
+  activity.markDisplayed(1060);
+  EXPECT_TRUE(activity.visible(true, 1159));
+  EXPECT_FALSE(activity.visible(true, 1160));
+  activity.recordSent(1200);
+  EXPECT_FALSE(activity.visible(false, 1201));
+  activity.reset();
+  EXPECT_FALSE(activity.visible(true, 1202));
+}
+
+namespace {
+struct ActivityDisplay {
+  int column = -1;
+  int row = -1;
+  int writes = 0;
+  char character = ' ';
+  void setCursor(int x, int y) { column = x; row = y; }
+  void print(char value) { character = value; ++writes; }
+};
+}
+
+TEST(MidiFileActivity, DelayedLcdServiceDrawsTopRightThenClearsAfterVisibleHold) {
+  ActivityDisplay lcd;
+  MidiFileActivity activity;
+  bool displayed = false;
+  activity.recordSent(1000);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1500);
+  EXPECT_EQ(lcd.column, 19);
+  EXPECT_EQ(lcd.row, 0);
+  EXPECT_EQ(lcd.character, '*');
+  EXPECT_TRUE(displayed);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1599);
+  EXPECT_EQ(lcd.writes, 1);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1600);
+  EXPECT_EQ(lcd.character, ' ');
+  EXPECT_FALSE(displayed);
+  EXPECT_EQ(lcd.writes, 2);
+}
+
+TEST(MidiFileActivity, PresetRedrawAndOverlayClearRestoreTheLitIndicator) {
+  ActivityDisplay lcd;
+  MidiFileActivity activity;
+  bool displayed = false;
+  activity.recordSent(1000);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1000);
+  lcd.character = ' ';
+  drawMidiFileActivity(lcd, activity, true, displayed, 1020, true);
+  EXPECT_EQ(lcd.character, '*');
+  lcd.character = ' ';
+  displayed = false;
+  drawMidiFileActivity(lcd, activity, true, displayed, 1030);
+  EXPECT_EQ(lcd.character, '*');
+  drawMidiFileActivity(lcd, activity, true, displayed, 1100);
+  EXPECT_EQ(lcd.character, ' ');
+}
+
+TEST(MidiFileActivity, AlreadyLitIndicatorAcknowledgesNewEventsAndStopClearsIt) {
+  ActivityDisplay lcd;
+  MidiFileActivity activity;
+  bool displayed = false;
+  activity.recordSent(1000);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1000);
+  activity.recordSent(1090);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1095);
+  EXPECT_EQ(lcd.writes, 1);
+  EXPECT_FALSE(activity.pendingDisplay);
+  drawMidiFileActivity(lcd, activity, true, displayed, 1194);
+  EXPECT_EQ(lcd.character, '*');
+  drawMidiFileActivity(lcd, activity, false, displayed, 1195);
+  EXPECT_EQ(lcd.character, ' ');
+  EXPECT_FALSE(displayed);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
