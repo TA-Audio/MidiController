@@ -171,20 +171,20 @@ struct MidiFileActivity {
   bool hasSent = false;
   uint32_t lastSentMillis = 0;
 
-  void reset() { hasSent = false; }
+  constexpr void reset() { hasSent = false; }
 
-  void recordSent(uint32_t now) {
+  constexpr void recordSent(uint32_t now) {
     hasSent = true;
     lastSentMillis = now;
   }
 
-  bool visible(bool playing, uint32_t now) const {
+  constexpr bool visible(bool playing, uint32_t now) const {
     return playing && hasSent &&
       static_cast<uint32_t>(now - lastSentMillis) < midiFileActivityHoldMs;
   }
 };
 
-inline int presetNameColumns(bool playingMidiFile) {
+constexpr int presetNameColumns(bool playingMidiFile) {
   return lcdColumnCount - (playingMidiFile ? 1 : 0);
 }
 

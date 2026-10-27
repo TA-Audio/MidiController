@@ -841,9 +841,9 @@ FLASHMEM void loadPresetList() {
 void midiFileCallback(midi_event *pev) {
 
   if ((pev->data[0] >= 0x80) && (pev->data[0] <= 0xe0)) {
-    Serial1.write(pev->data[0] | (midiFileOutputChannel - 1));
-    Serial1.write(&pev->data[1], pev->size - 1);
-    if (playingMidiFile) {
+    size_t bytesSent = Serial1.write(pev->data[0] | (midiFileOutputChannel - 1));
+    bytesSent += Serial1.write(&pev->data[1], pev->size - 1);
+    if (playingMidiFile && bytesSent > 0) {
       midiFileActivity.recordSent(millis());
     }
   }
