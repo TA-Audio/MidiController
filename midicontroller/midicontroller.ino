@@ -192,11 +192,6 @@ static void servicePresetDisplayRefresh() {
   setPresetDisplayInfo();
 }
 
-static void serviceMidiPassthrough() {
-  forwardMidiInput(MIDI2);
-  forwardMidiInput(MIDI3);
-}
-
 FLASHMEM bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<presetDocumentCapacity> &targetDoc) {
   if (presetIndex < 0 || presetIndex >= presetCount) {
     return false;

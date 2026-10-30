@@ -57,7 +57,7 @@ Each preset can define `OnExit` CC messages that are sent when navigating away t
 ### MIDI I/O
 | Port | Direction | Purpose |
 |---|---|---|
-| **Serial1 (DIN MIDI OUT)** | Output | Preset messages, MIDI file events, and optional MIDI clock. |
+| **Serial1 (DIN MIDI OUT / RX thru)** | Output + input | Preset messages, MIDI file events, and optional MIDI clock; received MIDI passes through to Serial1 output. |
 | **Serial2 (DIN MIDI IN 1)** | Input | Passes through to Serial1 (MIDI merge). |
 | **Serial3 (DIN MIDI IN 2)** | Input | Passes through to Serial1 (MIDI merge). |
 | **USB Host MIDI** | Output | PC and CC messages when `"USB": true` in the preset. |
@@ -280,7 +280,7 @@ Connecting loads the complete preset set, including presets with invalid JSON so
 
 Long SD operations send USB progress packets so an active save does not time out just because the card is slow. After a failed or interrupted save, **Reload controller set** retries SD recovery before reading the files; a successfully recovered controller does not need a reset. Reloading asks before discarding unsaved edits. A timeout identifies the USB command that stalled; an interrupted commit may already have completed, so reload before saving again. Update both the firmware and website to use progress-aware timeouts.
 
-Save errors also identify the upload/staging/commit phase, preset filename, and upload byte offset when applicable. Only Serial2 and Serial3 are passthrough inputs; Serial1 is the MIDI output and its receive side is not mirrored. Passthrough is processed in bounded batches so continuous MIDI traffic cannot monopolize the main loop.
+Save errors also identify the upload/staging/commit phase, preset filename, and upload byte offset when applicable. Serial1, Serial2, and Serial3 inputs pass through to Serial1 output and are mirrored to USB when enumerated. Library soft-thru is disabled so each received message is forwarded only once. Passthrough is processed in bounded batches so continuous MIDI traffic cannot monopolize the main loop.
 
 Save does not activate a preset or send OnLoad/OnExit messages. The running preset, its toggle/sequence states and MIDI Clock remain in memory even if its file was edited or deleted. If the active file survives reordering, navigation follows its new position; otherwise the old position is clamped to the new list. Saved toggle restoration is invalidated until a saved preset is explicitly loaded, avoiding applying the old rig's state to a different file. **Activate saved preset** loads the selected saved preset and sends OnExit/OnLoad normally. Physical Next/Previous also load from the refreshed list. **Test switch 1/2/3** sends the selected saved preset's primary action; use physical switches for gestures. Tests require explicit activation after a set save, and firmware rejects tests if physical navigation changed the preset. Test Switch 1 can stop a file it started.
 

@@ -23,7 +23,22 @@ struct Wire {
   }
   void sendCommon(uint8_t type, unsigned data) { send(type, data & 127, data >> 7, 0); }
   void sendSysEx(unsigned length, const uint8_t *bytes, bool) { sysex.assign(bytes, bytes + length); }
-} MIDI1, usbMIDI;
+} usbMIDI;
+struct Port : Wire {
+  std::vector<Message> received;
+  size_t next = 0;
+  bool read() {
+    if (next == received.size()) return false;
+    ++next;
+    return true;
+  }
+  midi::MidiType getType() { return static_cast<midi::MidiType>(received[next - 1].type); }
+  uint8_t getData1() { return received[next - 1].data1; }
+  uint8_t getData2() { return received[next - 1].data2; }
+  uint8_t getChannel() { return received[next - 1].channel; }
+  unsigned getSysExArrayLength() { return static_cast<unsigned>(sysex.size()); }
+  const uint8_t *getSysExArray() { return sysex.data(); }
+} MIDI1, MIDI2, MIDI3;
 uint8_t usb_configuration = 0;
 #define USB_MIDI_SERIAL
 #include "midi_output.h"
@@ -98,6 +113,39 @@ TEST(MidiOutput, PassthroughPreservesChannelMessagesAndFramedSysex) {
   input.remaining = 1;
   forwardMidiInput(input);
   EXPECT_TRUE(usbMIDI.sysex.empty());
+}
+
+TEST(MidiOutput, PassthroughServicesAllSerialInputsExactlyOnceWithOrWithoutUsb) {
+  for (uint8_t configuration : {0, 1}) {
+    MIDI1 = {};
+    MIDI2 = {};
+    MIDI3 = {};
+    usbMIDI = {};
+    usb_configuration = configuration;
+    MIDI1.received = {{midi::NoteOn, 60, 100, 1}, {midi::NoteOff, 60, 0, 1}};
+    MIDI2.received = {{midi::ControlChange, 64, 127, 2}};
+    MIDI3.received = {{midi::ProgramChange, 12, 0, 3}};
+
+    serviceMidiPassthrough();
+    serviceMidiPassthrough();
+
+    ASSERT_EQ(MIDI1.messages.size(), 4u);
+    EXPECT_EQ(MIDI1.messages[0].type, midi::NoteOn);
+    EXPECT_EQ(MIDI1.messages[1].type, midi::NoteOff);
+    EXPECT_EQ(MIDI1.messages[2].type, midi::ControlChange);
+    EXPECT_EQ(MIDI1.messages[2].channel, 2);
+    EXPECT_EQ(MIDI1.messages[3].type, midi::ProgramChange);
+    EXPECT_EQ(MIDI1.messages[3].channel, 3);
+    ASSERT_EQ(usbMIDI.messages.size(), configuration ? 4u : 0u);
+    for (size_t index = 0; index < usbMIDI.messages.size(); ++index) {
+      EXPECT_EQ(usbMIDI.messages[index].type, MIDI1.messages[index].type);
+      EXPECT_EQ(usbMIDI.messages[index].data1, MIDI1.messages[index].data1);
+      EXPECT_EQ(usbMIDI.messages[index].data2, MIDI1.messages[index].data2);
+      EXPECT_EQ(usbMIDI.messages[index].channel, MIDI1.messages[index].channel);
+    }
+    EXPECT_TRUE(MIDI2.messages.empty());
+    EXPECT_TRUE(MIDI3.messages.empty());
+  }
 }
 
 TEST(MidiOutput, FileEventsPreserveDinBytesAndMirrorConfiguredChannelAndMessageSize) {

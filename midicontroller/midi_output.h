@@ -39,3 +39,10 @@ static void forwardMidiInput(Input &input) {
     }
   }
 }
+
+static void serviceMidiPassthrough() {
+  // Serial1 RX historically used soft-thru; forward explicitly to avoid duplicate DIN sends.
+  forwardMidiInput(MIDI1);
+  forwardMidiInput(MIDI2);
+  forwardMidiInput(MIDI3);
+}
