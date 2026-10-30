@@ -9,6 +9,7 @@ A feature-rich MIDI foot controller built on the **Teensy 4.1** platform. Design
 - Up to **150 presets** are loaded at boot, sorted numerically by filename (e.g. `1.json`, `2.json`, …).
 - Navigate presets with dedicated **Next / Previous** foot switches. Previous from the first preset wraps to the last, and Next from the last wraps to the first.
 - Navigation happens on release, regardless of how long the switch is held.
+- Holding both navigation switches opens device settings instead; both releases are consumed even if the hold is cancelled.
 - The active preset index is saved to EEPROM so the controller remembers its position across power cycles.
 - Presets are prefetched in the direction of navigation for instant loading.
 - Invalid preset JSON displays an error; use **Next / Previous** to skip the preset.
@@ -23,7 +24,7 @@ Each preset defines up to three foot switch actions (`Switch1`, `Switch2`, `Swit
 | **Control Change** | Send one or more CC messages on any MIDI channel, via DIN or USB. |
 | **Toggle Mode** | A switch can be configured as a toggle — alternating between on (CC 127) and off (CC 0) with each press. The LCD shows `On!` / `Off!` indicators and a `*` marker on the display row. |
 
-The current preset's toggle states are saved to EEPROM immediately when a toggle changes. On power-up, the controller restores those states **after** the normal OnLoad messages. Legacy toggles send their matching CC 127/0 messages without replaying switch PC messages. Explicit On/Off toggles replay the configured PC and CC list for their saved state, including custom values and USB destinations. MIDI file playback is never resumed. Changing presets resets all toggles; returning to a preset does not restore its previous toggles.
+The current preset's toggle states are saved to EEPROM immediately when a toggle changes. On power-up, the controller restores those states **after** the normal OnLoad messages, unless **Restore toggles** is disabled in device settings. Legacy toggles send their matching CC 127/0 messages without replaying switch PC messages. Explicit On/Off toggles replay the configured PC and CC list for their saved state, including custom values and USB destinations. MIDI file playback is never resumed. Changing presets resets all toggles; returning to a preset does not restore its previous toggles.
 
 Saved toggle states are used only if the preset filename and configuration still match. Older firmware's saved preset position remains compatible, with toggles initially Off. Immediate saving removes the deliberate save delay, but power loss during an EEPROM write can still prevent restoration.
 
@@ -34,7 +35,7 @@ These features are opt-in: existing presets still send their primary action imme
 - **Explicit On/Off**: set `Toggle: true` and supply `On` and `Off` action objects. Each state has its own label, PC list and CC list; CC values are used exactly as configured. These replace the switch's legacy PC/CC lists.
 - **Sequences**: supply a `Sequence` array of 1-16 action objects. Each primary activation sends one step, then advances and wraps. The LCD shows the last step's label after activation. Changing presets resets the sequence to step 1; position is not persisted.
 - **Tap tempo**: set `TapTempo: true`. Two taps establish tempo; subsequent taps average the last three intervals (30-300 BPM). Taps closer than 200 ms are ignored; a gap longer than two seconds starts a new measurement. Tempo is temporary and resets when changing presets. Tapping updates the active DIN MIDI Clock without restarting transport, or starts preset Clock if none is running. When file Clock owns the tempo, tapping also changes file playback tempo; when preset Clock owns it, file note tempo remains independent.
-- **Gestures**: optional `Gestures.Press`, `Release`, `LongPress`, and `DoubleTap` action objects. Press/Release run on their respective edges, useful for momentary effects. With gestures enabled, the primary action runs on release, unless replaced by a 600 ms long press or a double tap. Enabling DoubleTap delays a single primary activation by 300 ms after release. Release still runs after a long/double action and when navigating away while held. Leave primary lists empty for a momentary-only switch.
+- **Gestures**: optional `Gestures.Press`, `Release`, `LongPress`, and `DoubleTap` action objects. Press/Release run on their respective edges, useful for momentary effects. With gestures enabled, the primary action runs on release, unless replaced by a long press or a double tap. The default long-press threshold is 600 ms; enabling DoubleTap delays a single primary activation by 300 ms after release by default. Both timings are adjustable in device settings. Release still runs after a long/double action and when navigating away while held. Leave primary lists empty for a momentary-only switch.
 
 Toggle, Sequence and TapTempo are mutually exclusive primary modes; gestures can accompany any mode. Switch 1 remains Play/Stop when a MIDI file is assigned, ignoring its performance actions. Action labels fall back to the switch label when empty.
 
@@ -75,6 +76,40 @@ Use only one explicit USB destination per message. Neither flag means DIN output
 
 ### Boot Screen
 Displays "TA Audio / SYNAPSE / MIDI CONTROLLER / v0.2.0" for 2 seconds on power-up.
+
+### Device Settings
+
+Hold **Preset Previous + Preset Next together continuously for five seconds** to open settings. The LCD shows a countdown. Releasing early cancels; neither release changes the preset. Release both switches before trying again. Single-switch preset navigation remains on release, with no extra delay.
+
+Stop MIDI file playback before opening settings. An active live-editor transfer or controller startup also blocks entry. Preset MIDI Clock, USB servicing and enabled DIN passthrough continue while browsing. Performance switches become menu controls, pending gestures are cancelled, and any held momentary gesture receives its Release action once.
+
+| Control | Browsing | Editing |
+|---|---|---|
+| Preset Previous / Next | Previous / next setting | Decrease / increase value |
+| Switch 1 | Back / exit | Undo this edit |
+| Switch 2 | Edit / view | Confirm into staged settings |
+| Switch 3 | Save & Exit | Save & Exit with current edit |
+
+The top row shows the category; `*` means unsaved changes. Changes take effect only after **Save & Exit**, not when confirming an individual edit. Back with unsaved changes offers **1: Discard, 2: Cancel exit, 3: Save**. Saving routing changes requires an additional confirmation: stop incoming notes first to avoid leaving notes sounding on connected equipment. No automatic MIDI panic is sent.
+
+| Setting | Default | Options |
+|---|---|---|
+| DIN input 1 / 2 thru | Both On | Independently forward or drop each input. Disabled inputs are still drained. |
+| Computer USB mirror | On | Mirror DIN output, file events, Clock/transport and input SysEx to the computer. Unavailable in builds without USB MIDI. Explicit USB-only preset messages are unaffected. |
+| Startup preset | Last used | Last used or a fixed preset file. |
+| Fixed preset file | First file when selected | Browse the loaded preset filenames. Selection follows the filename, not its position after reordering. |
+| Restore toggles | On | Restore saved toggles only when the startup preset and its configuration match. Off starts toggles Off after normal OnLoad events. |
+| LCD backlight | On | On / Off. The backlight is temporarily on during settings access. |
+| Scroll preset names | On | On / Off; Off displays the start of the name. |
+| Message duration | 1500 ms | 500-5000 ms, in 250 ms steps. |
+| Long press | 600 ms | 400-2000 ms, in 100 ms steps. |
+| Double tap | 300 ms | 200-600 ms, in 50 ms steps. Also controls the delayed single activation. |
+| Device information | Read-only | Firmware version, loaded preset count and computer USB MIDI build/connection status. |
+| Reset settings | Confirmation required | Stage factory defaults; Save & Exit to apply. Never deletes presets or erases saved preset/toggle state. |
+
+Settings are stored separately from preset/toggle state in EEPROM, with two checksummed records to retain the previous settings if a save is interrupted. Failed verification keeps the menu open and retains your draft for retry. First use keeps existing behavior; corrupt or unsupported records show a startup warning and use defaults. A missing fixed startup file shows a warning and falls back to the first loaded preset.
+
+Settings do not edit preset JSON or add a web-editor settings page. Read-only live-editor requests remain available, but requests that activate, test or save presets (including abort/recovery) require closing settings first. Brightness and contrast are not software-controlled by the current LCD interface. The entry hold and button debounce are not configurable.
 
 ## Hardware
 

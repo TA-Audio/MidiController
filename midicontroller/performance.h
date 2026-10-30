@@ -21,14 +21,15 @@ struct SwitchGesture {
   uint32_t pressedAt = 0;
   uint32_t releasedAt = 0;
 
-  constexpr uint8_t update(bool pressed, uint32_t now, bool longEnabled, bool doubleEnabled) {
+  constexpr uint8_t update(bool pressed, uint32_t now, bool longEnabled, bool doubleEnabled,
+                           uint32_t holdMs = longPressMs, uint32_t doubleMs = doubleTapMs) {
     uint8_t events = GestureNone;
     if (down && !held && longEnabled &&
-        static_cast<uint32_t>(now - pressedAt) >= longPressMs) {
+        static_cast<uint32_t>(now - pressedAt) >= holdMs) {
       held = true;
       events |= GestureHold;
     }
-    if (pending && static_cast<uint32_t>(now - releasedAt) >= doubleTapMs) {
+    if (pending && static_cast<uint32_t>(now - releasedAt) >= doubleMs) {
       pending = false;
       events |= GestureTap;
     }

@@ -6,6 +6,7 @@
 #include <deque>
 #include <vector>
 #include "performance_validation.h"
+#include "settings_menu.h"
 
 namespace {
 
@@ -93,6 +94,7 @@ uint32_t usb_midi_available() { return usbMIDI.received.size(); }
 bool hasLoaded = true, playingMidiFile = false, stoppingMidiFile = false, activePresetValid = true;
 bool liveStorageFault = false, livePresetDetached = false;
 bool livePresetHasSlot = true;
+SettingsMenu settingsMenu;
 uint32_t activePresetSignature = 0;
 int currentPreset = 0, presetCount = 2, prefetchedPresetIndex = -1;
 bool prefetchRequested = false;
@@ -145,6 +147,7 @@ protected:
     snprintf(presetList[0], maxPresetNameLength, "1.json");
     snprintf(presetList[1], maxPresetNameLength, "2.json");
     hasLoaded = activePresetValid = true;
+    settingsMenu.active = false;
     playingMidiFile = stoppingMidiFile = false;
     currentPreset = activations = triggers = 0;
   }
@@ -177,6 +180,34 @@ protected:
     EXPECT_EQ(files["2.json"], original);
   }
 };
+
+TEST_F(LiveEditor, SettingsMenuRejectsMutationsAndSwitchTestsButAllowsReadOnlyRequests) {
+  settingsMenu.active = true;
+  for (uint8_t command : {4, 5, 6, 7, 8, 9, 10, 11}) {
+    EXPECT_FALSE(request(command, R"({"name":"1.json","index":0,"switch":1})"));
+    EXPECT_NE(std::string(liveResponse).find("settings menu"), std::string::npos);
+  }
+  EXPECT_EQ(activations, 0);
+  EXPECT_EQ(triggers, 0);
+  EXPECT_EQ(files["1.json"], original);
+  EXPECT_TRUE(request(1));
+  EXPECT_TRUE(request(2));
+  EXPECT_TRUE(request(3, R"({"name":"1.json"})"));
+  EXPECT_TRUE(request(12));
+}
+
+TEST_F(LiveEditor, SettingsEntryCanDetectUploadsResponsesAndSetTransactions) {
+  EXPECT_FALSE(liveEditorBusy());
+  ASSERT_TRUE(upload(updated));
+  EXPECT_TRUE(liveEditorBusy());
+  ASSERT_TRUE(request(9));
+  EXPECT_FALSE(liveEditorBusy());
+  liveSetActive = true;
+  EXPECT_TRUE(liveEditorBusy());
+  liveSetActive = false;
+  liveResponding = true;
+  EXPECT_TRUE(liveEditorBusy());
+}
 
 TEST_F(LiveEditor, SavesExistingFileWithoutActivatingAndInvalidatesPrefetch) {
   prefetchedPresetIndex = 0;

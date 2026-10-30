@@ -147,6 +147,62 @@ TEST(MidiOutput, ContinuousPassthroughReturnsToTheLoopAfterABoundedBatch) {
   EXPECT_EQ(MIDI1.messages.size(), 32u);
   EXPECT_EQ(usbMIDI.messages.size(), 32u);
 }
+
+TEST(MidiOutput, MirrorDisabledKeepsDinEventsClockAndFileEventsWithoutUsbCopies) {
+  MIDI1 = {};
+  usbMIDI = {};
+  usb_configuration = 1;
+  for (auto type : {midi::NoteOn, midi::NoteOff, midi::ControlChange, midi::ProgramChange,
+                    midi::Clock, midi::Start, midi::Stop, midi::SongPosition}) {
+    sendDinMidi(type, 12, 34, 3, false);
+  }
+  EXPECT_EQ(MIDI1.messages.size(), 8u);
+  EXPECT_TRUE(usbMIDI.messages.empty());
+  struct Serial {
+    size_t write(uint8_t) { return 1; }
+    size_t write(const uint8_t *, size_t count) { return count; }
+  } serial;
+  struct Event { uint8_t data[3]; uint8_t size; };
+  EXPECT_EQ(sendMidiFileEvent(serial, Event{{0x90, 60, 127}, 3}, 1, false), 3u);
+  EXPECT_TRUE(usbMIDI.messages.empty());
+  usbMIDI.send(midi::ControlChange, 64, 127, 2);
+  EXPECT_EQ(usbMIDI.messages.size(), 1u);
+}
+
+TEST(MidiOutput, DisabledInputsDrainWithoutForwardingAndSysexObeysMirrorPreference) {
+  struct Input {
+    int remaining = 1;
+    midi::MidiType type = midi::NoteOn;
+    uint8_t bytes[3] = {0xf0, 0x7d, 0xf7};
+    bool read() { return remaining-- > 0; }
+    midi::MidiType getType() { return type; }
+    uint8_t getData1() { return 60; }
+    uint8_t getData2() { return 100; }
+    uint8_t getChannel() { return 2; }
+    unsigned getSysExArrayLength() { return sizeof(bytes); }
+    const uint8_t *getSysExArray() { return bytes; }
+  } first, second;
+  MIDI1 = {};
+  usbMIDI = {};
+  usb_configuration = 1;
+  forwardMidiInput(first, false, true);
+  EXPECT_LE(first.remaining, 0);
+  EXPECT_TRUE(MIDI1.messages.empty());
+  forwardMidiInput(second, true, false);
+  EXPECT_EQ(MIDI1.messages.size(), 1u);
+  EXPECT_TRUE(usbMIDI.messages.empty());
+  first.remaining = 1;
+  first.type = midi::SystemExclusive;
+  forwardMidiInput(first, false, true);
+  EXPECT_TRUE(MIDI1.sysex.empty());
+  first.remaining = 1;
+  forwardMidiInput(first, true, false);
+  EXPECT_EQ(MIDI1.sysex, (std::vector<uint8_t>{0xf0, 0x7d, 0xf7}));
+  EXPECT_TRUE(usbMIDI.sysex.empty());
+  first.remaining = 1;
+  forwardMidiInput(first, true, true);
+  EXPECT_EQ(MIDI1.sysex, usbMIDI.sysex);
+}
 } // namespace outputTests
 
 // ═══════════════════════════════════════════════════════════════════════════════

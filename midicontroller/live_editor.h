@@ -180,6 +180,9 @@ static void serviceLiveRequest() {
     queueLiveResponse(id, command, "{\"product\":\"Synapse\",\"protocol\":1,\"maxBytes\":8192,\"presetSets\":true}");
     return;
   }
+  if (settingsMenu.active && command != 2 && command != 3 && command != 12) {
+    fail("Close the device settings menu before changing presets."); return;
+  }
   if (command == 9) {
     liveExpectedBytes = 0;
     liveSetActive = false;
@@ -474,8 +477,13 @@ static void beginLiveEditor() {
   usbMIDI.setHandleSysEx(liveSysExReceived);
 }
 
+static bool liveEditorBusy() {
+  return liveWorking || liveResponding || liveRequestLength || liveExpectedBytes || liveSetActive;
+}
+
 #else
 static void serviceLiveStorage() {}
 static void beginLiveEditor() {}
 static void serviceLiveEditor() {}
+static bool liveEditorBusy() { return false; }
 #endif

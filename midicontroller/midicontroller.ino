@@ -12,6 +12,15 @@
 #include "toggle_state.h"
 #include "performance.h"
 #include "performance_validation.h"
+#include "settings_menu.h"
+
+DeviceSettings deviceSettings;
+SettingsMenu settingsMenu;
+SettingsChord settingsChord;
+uint8_t buttonsDown = 0;
+uint8_t suppressedButtons = 0;
+bool settingsLoadWarning = false;
+bool startupPresetMissing = false;
 
 bool hasLoaded = false;
 bool switchToggled[switchCount] = {};
@@ -84,8 +93,16 @@ static void serviceSwitchGesture(int index, bool pressed);
 static void executeTapTempo();
 static void executePerformanceAction(JsonObject action);
 static const char *switchDisplayName(int index);
+static void handleSettingsButton(uint8_t button);
+static void serviceSettingsMenu();
+static void invalidateSettingsDisplay();
+
+static bool settingsOwnDisplay() {
+  return settingsMenu.active || settingsChord.claimed;
+}
 
 static void clearDisplay() {
+  invalidateSettingsDisplay();
   lcd.clear();
   midiFileActivityDisplayed = false;
   midiFileActivityDisplayAllowed = false;
@@ -110,7 +127,7 @@ static inline void sendProgramChange(int pcValue, int channel, bool usbEvent, bo
   if (usbEvent) {
     usbMidiDevice.sendProgramChange(safePc, channel);
   } else {
-    sendDinMidi(midi::ProgramChange, safePc, 0, channel);
+    sendDinMidi(midi::ProgramChange, safePc, 0, channel, deviceSettings.usbMirror);
   }
 }
 
@@ -132,7 +149,7 @@ static inline void sendControlChange(int ccNumber, int ccValue, int channel, boo
   if (usbEvent) {
     usbMidiDevice.sendControlChange(safeCcNumber, safeCcValue, channel);
   } else {
-    sendDinMidi(midi::ControlChange, safeCcNumber, safeCcValue, channel);
+    sendDinMidi(midi::ControlChange, safeCcNumber, safeCcValue, channel, deviceSettings.usbMirror);
   }
 }
 
@@ -184,7 +201,7 @@ static void commitPendingEepromWrites() {
 }
 
 static void servicePresetDisplayRefresh() {
-  if (!pendingDisplayRefresh || resetPresetDisplay) {
+  if (!pendingDisplayRefresh || resetPresetDisplay || settingsOwnDisplay()) {
     return;
   }
 
@@ -193,8 +210,8 @@ static void servicePresetDisplayRefresh() {
 }
 
 static void serviceMidiPassthrough() {
-  forwardMidiInput(MIDI2);
-  forwardMidiInput(MIDI3);
+  forwardMidiInput(MIDI2, deviceSettings.dinInput1, deviceSettings.usbMirror);
+  forwardMidiInput(MIDI3, deviceSettings.dinInput2, deviceSettings.usbMirror);
 }
 
 FLASHMEM bool loadPresetDocumentByIndex(int presetIndex, StaticJsonDocument<presetDocumentCapacity> &targetDoc) {
@@ -314,6 +331,10 @@ FLASHMEM void showError(const char *errorMessageLine1, const char *errorMessageL
 }
 
 void setPresetDisplayInfo() {
+  if (settingsOwnDisplay()) {
+    requestPresetDisplayRefresh();
+    return;
+  }
   clearDisplay();
   lcd.setCursor(0, 0);
   const char *sw1 = "";
@@ -430,7 +451,7 @@ static void displayPresetName() {
 }
 
 static void servicePresetNameScroll() {
-  if (!activePresetValid || resetPresetDisplay ||
+  if (!deviceSettings.scrollNames || settingsOwnDisplay() || !activePresetValid || resetPresetDisplay ||
       !hasElapsed(currentMillis, presetNameScrollStartMillis, presetNameScrollPeriodMs)) {
     return;
   }
@@ -454,6 +475,7 @@ static void servicePresetNameScroll() {
 }
 
 static void serviceMidiFileActivityIndicator() {
+  if (settingsOwnDisplay()) return;
   const bool playbackChanged = midiFileActivityWasPlaying != playingMidiFile;
   midiFileActivityWasPlaying = playingMidiFile;
   if (!playingMidiFile) {
@@ -469,7 +491,7 @@ static void serviceMidiFileActivityIndicator() {
 
 static void stopMidiClock() {
   if (midiClockEnabled) {
-    sendDinMidi(midi::Stop);
+    sendDinMidi(midi::Stop, 0, 0, 0, deviceSettings.usbMirror);
   }
   midiClockEnabled = false;
   midiClockForMidiFile = false;
@@ -489,9 +511,9 @@ static void startMidiClock(uint16_t tempo, bool forMidiFile, bool sendStart = tr
   midiClockTempo = tempo;
   midiClockIntervalUs = interval;
   if (sendStart) {
-    sendDinMidi(midi::Start);
+    sendDinMidi(midi::Start, 0, 0, 0, deviceSettings.usbMirror);
   }
-  sendDinMidi(midi::Clock);
+  sendDinMidi(midi::Clock, 0, 0, 0, deviceSettings.usbMirror);
   midiClockNextPulseUs = micros() + midiClockIntervalUs;
 }
 
@@ -563,7 +585,8 @@ static void serviceSwitchGesture(int index, bool pressed) {
   JsonObject gestures = sw["Gestures"];
   const uint8_t events = switchGestures[index].update(
     pressed, static_cast<uint32_t>(millis()),
-    gestures["LongPress"].is<JsonObject>(), gestures["DoubleTap"].is<JsonObject>());
+    gestures["LongPress"].is<JsonObject>(), gestures["DoubleTap"].is<JsonObject>(),
+    deviceSettings.holdMs, deviceSettings.doubleMs);
   if (events & GesturePress) executePerformanceAction(gestures["Press"]);
   if (events & GestureHold) {
     executePerformanceAction(gestures["LongPress"]);
@@ -591,7 +614,49 @@ static const char *switchDisplayName(int index) {
   return sw["Name"] | "";
 }
 
+static void suspendPerformanceSwitches() {
+  const char *keys[] = {"Switch1", "Switch2", "Switch3"};
+  for (int i = 0; i < switchCount; ++i) {
+    if (activePresetValid && switchGestures[i].down) {
+      executePerformanceAction(activePreset[keys[i]]["Gestures"]["Release"]);
+    }
+    switchGestures[i] = SwitchGesture{};
+  }
+  suppressedButtons |= buttonsDown & 7;
+}
+
 static void switchHandler(uint8_t btnId, uint8_t btnState) {
+  const uint8_t bit = 1 << (btnId - 1);
+  const bool pressed = btnState == BTN_STATE_PRESSED;
+  if (pressed) buttonsDown |= bit;
+  else buttonsDown &= ~bit;
+  const bool suppressed = suppressedButtons & bit;
+  if (!pressed) suppressedButtons &= ~bit;
+  const bool wasClaimed = settingsChord.claimed;
+  const bool navigate = settingsChord.update(btnId, pressed, static_cast<uint32_t>(millis()));
+  if (!wasClaimed && settingsChord.claimed && !settingsMenu.active) {
+    suspendPerformanceSwitches();
+    lcd.backlight();
+  }
+  if (wasClaimed && !settingsChord.claimed && !settingsMenu.active) {
+    if (!deviceSettings.backlight) lcd.noBacklight();
+    resetPresetDisplay = false;
+    requestPresetDisplayRefresh();
+  }
+  if (suppressed) return;
+  if (settingsMenu.active) {
+    if (!pressed && (btnId <= 3 || navigate)) handleSettingsButton(btnId);
+    return;
+  }
+  if (settingsChord.claimed || wasClaimed) {
+    if (pressed) suppressedButtons |= bit;
+    return;
+  }
+  if (btnId >= 4 && !navigate) return;
+  if (!hasLoaded || liveStorageFault) {
+    if (pressed) suppressedButtons |= bit;
+    return;
+  }
   if (hasLoaded && activePresetValid && btnId >= 1 && btnId <= 3 &&
       !(btnId == 1 && !activePreset["FileInfo"].isNull())) {
     const char *keys[] = {"Switch1", "Switch2", "Switch3"};
@@ -629,7 +694,7 @@ FLASHMEM void stopMidiFile(bool changingPreset) {
     stopMidiClock();
   }
   if (activeMidiFileClockMode != MidiFileClockMode::Disabled && !clockSendsStop) {
-    sendDinMidi(midi::Stop);
+    sendDinMidi(midi::Stop, 0, 0, 0, deviceSettings.usbMirror);
   }
   activeMidiFileClockMode = MidiFileClockMode::Disabled;
   sendCcArray(activePreset["FileInfo"]["StopCC"]);
@@ -655,7 +720,7 @@ static void serviceMidiClock() {
     return;
   }
 
-  sendDinMidi(midi::Clock);
+  sendDinMidi(midi::Clock, 0, 0, 0, deviceSettings.usbMirror);
   midiClockNextPulseUs += midiClockIntervalUs;
   if (static_cast<int32_t>(now - midiClockNextPulseUs) >= static_cast<int32_t>(midiClockIntervalUs)) {
     midiClockNextPulseUs = now + midiClockIntervalUs;
@@ -707,7 +772,7 @@ FLASHMEM void toggleMidiFilePlayback(JsonObject fileInfo) {
       midiFilePlayer.getTempo());
     activeMidiFileClockMode = actions.clockMode;
     if (actions.sendStart) {
-      sendDinMidi(midi::Start);
+      sendDinMidi(midi::Start, 0, 0, 0, deviceSettings.usbMirror);
     }
     if (actions.startClock) {
       startMidiClock(midiFilePlayer.getTempo(), true, false);
@@ -890,7 +955,8 @@ FLASHMEM void changePreset() {
   activePreset = presetDoc;
   activePresetValid = true;
   activePresetSignature = presetStateSignature(presetList[currentPreset], activePreset);
-  const bool restoreBootState = validControllerState(bootControllerState, presetCount) &&
+  const bool restoreBootState = deviceSettings.restoreToggles &&
+    validControllerState(bootControllerState, presetCount) &&
     bootControllerState.presetIndex == static_cast<uint32_t>(currentPreset) &&
     bootControllerState.presetSignature == activePresetSignature;
   const uint8_t bootMask = consumeBootToggleMask(
@@ -930,7 +996,8 @@ FLASHMEM void showBootScreen() {
   lcd.setCursor(0, 0);
   lcd.print("TA Audio");
   lcd.setCursor(0, 1);
-  lcd.print("SYNAPSE v0.2.0");
+  lcd.print("SYNAPSE v");
+  lcd.print(firmwareVersion);
   lcd.setCursor(0, 2);
   lcd.print("MIDI CONTROLLER");
 
@@ -988,7 +1055,7 @@ FLASHMEM void loadPresetList() {
 }
 
 void midiFileCallback(midi_event *pev) {
-  if (sendMidiFileEvent(Serial1, *pev, midiFileOutputChannel) && playingMidiFile) {
+  if (sendMidiFileEvent(Serial1, *pev, midiFileOutputChannel, deviceSettings.usbMirror) && playingMidiFile) {
     midiFileActivity.recordSent(millis());
   }
 }
@@ -1000,6 +1067,7 @@ static Button nextPresetButton(4, switchHandler);
 static Button prevPresetButton(5, switchHandler);
 
 #include "live_editor.h"
+#include "settings_ui.h"
 
 FLASHMEM void setup() {
 
@@ -1052,17 +1120,22 @@ FLASHMEM void setup() {
   currentPreset = validControllerState(bootControllerState, presetCount)
     ? static_cast<int>(bootControllerState.presetIndex)
     : validateStoredPreset(currentPreset, presetCount);
+  settingsLoadWarning = loadDeviceSettings(EEPROM, deviceSettings) == SettingsLoad::Invalid;
+  currentPreset = startupPresetIndex(deviceSettings, presetList, presetCount,
+    currentPreset, startupPresetMissing);
+  if (!deviceSettings.backlight) lcd.noBacklight();
 
   startMillis = millis();
 }
 
 static void pollButtons() {
   // digitalReadFast compiles to a single register read vs digitalRead's pin lookup table.
+  nextPresetButton.update(digitalReadFast(nextPresetPin));
+  prevPresetButton.update(digitalReadFast(prevPresetPin));
+  serviceSettingsMenu();
   switch1Button.update(digitalReadFast(switch1Pin));
   switch2Button.update(digitalReadFast(switch2Pin));
   switch3Button.update(digitalReadFast(switch3Pin));
-  nextPresetButton.update(digitalReadFast(nextPresetPin));
-  prevPresetButton.update(digitalReadFast(prevPresetPin));
 }
 
 void loop() {
@@ -1074,7 +1147,7 @@ void loop() {
   serviceMidiPassthrough();
 
   if (!liveStorageFault) pollButtons();
-  if (!liveStorageFault && hasLoaded && activePresetValid) {
+  if (!liveStorageFault && !settingsOwnDisplay() && hasLoaded && activePresetValid) {
     const char *keys[] = {"Switch1", "Switch2", "Switch3"};
     for (int i = 0; i < switchCount; ++i) {
       if (i == 0 && !activePreset["FileInfo"].isNull()) continue;
@@ -1086,9 +1159,14 @@ void loop() {
   if (!hasLoaded && (currentMillis - startMillis >= initialLoadDelayMs)) {
     hasLoaded = true;
     changePreset();
+    if (settingsLoadWarning || startupPresetMissing) {
+      showError(settingsLoadWarning ? "Settings invalid" : "Startup file missing",
+        settingsLoadWarning ? "Defaults; save again" : "Using first preset");
+      setUiMessageTimeout();
+    }
   }
 
-  if (resetPresetDisplay && (currentMillis - switchDisplayStartMillis >= switchDisplayPeriodMs)) {
+  if (resetPresetDisplay && (currentMillis - switchDisplayStartMillis >= deviceSettings.messageMs)) {
     resetPresetDisplay = false;
     requestPresetDisplayRefresh();
   }
@@ -1118,6 +1196,6 @@ void loop() {
   servicePresetDisplayRefresh();
   servicePresetNameScroll();
   serviceMidiFileActivityIndicator();
-  if (!liveStorageFault) servicePresetPrefetch();
+  if (!liveStorageFault && !settingsOwnDisplay()) servicePresetPrefetch();
   commitPendingEepromWrites();
 }
